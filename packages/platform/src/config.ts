@@ -38,6 +38,21 @@ export function optInt(
   return n;
 }
 
+export function optNumber(
+  env: EnvSource,
+  key: string,
+  fallback: number,
+  bounds: { min?: number; max?: number } = {},
+): number {
+  const raw = env[key];
+  if (raw === undefined || raw === "") return fallback;
+  const value = Number(raw);
+  if (!Number.isFinite(value)) throw new ConfigError(key, `must be a number, got ${JSON.stringify(raw)}`);
+  if (bounds.min !== undefined && value < bounds.min) throw new ConfigError(key, `must be >= ${bounds.min}, got ${value}`);
+  if (bounds.max !== undefined && value > bounds.max) throw new ConfigError(key, `must be <= ${bounds.max}, got ${value}`);
+  return value;
+}
+
 export function optBool(env: EnvSource, key: string, def: boolean): boolean {
   const raw = env[key];
   if (raw === undefined || raw.trim() === "") return def;

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  ConfigError, requireStr, optStr, optInt, optBool, requireUrl, optLogLevel,
+  ConfigError, requireStr, optStr, optInt, optBool, optNumber, requireUrl, optLogLevel,
   loadCommonConfig, redactConfig, loadOrExit,
 } from "./config.js";
 
@@ -100,4 +100,11 @@ test("loadOrExit writes the reason to stdout and exits 1 on a bad value", () => 
   const line = JSON.parse(written[0]!);
   assert.equal(line.level, "error");
   assert.match(line.err.msg, /DB_POOL_MAX/);
+});
+
+test("optNumber accepts fractions and enforces its bounds", () => {
+  assert.equal(optNumber({}, "RATIO", 0.3), 0.3);
+  assert.equal(optNumber({ RATIO: "0.75" }, "RATIO", 0.3), 0.75);
+  assert.throws(() => optNumber({ RATIO: "2" }, "RATIO", 0.3, { max: 1 }), /RATIO/);
+  assert.throws(() => optNumber({ RATIO: "abc" }, "RATIO", 0.3), /RATIO/);
 });

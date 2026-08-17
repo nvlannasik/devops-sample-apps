@@ -1,3 +1,4 @@
+# Local stack. Mirrors the deployment contract: one migration pass, then four services.
 services:
   postgres:
     image: postgres:16-alpine
@@ -12,3 +13,76 @@ services:
       interval: 2s
       timeout: 3s
       retries: 15
+
+  migrate:
+    build:
+      context: .
+      dockerfile: services/orders-api/Dockerfile
+    command: ["node", "services/orders-api/dist/db/migrate-cli.js"]
+    environment:
+      DATABASE_URL: postgres://sample:sample@postgres:5432/sample_app
+      SERVICE_VERSION: local
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  orders-api:
+    build:
+      context: .
+      dockerfile: services/orders-api/Dockerfile
+    environment:
+      DATABASE_URL: postgres://sample:sample@postgres:5432/sample_app
+      SERVICE_VERSION: local
+      LOG_LEVEL: debug
+      PORT: "3000"
+    ports:
+      - "8082:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  settlement-worker:
+    build:
+      context: .
+      dockerfile: services/settlement-worker/Dockerfile
+    environment:
+      DATABASE_URL: postgres://sample:sample@postgres:5432/sample_app
+      SERVICE_VERSION: local
+      LOG_LEVEL: debug
+      PORT: "3001"
+    ports:
+      - "8083:3001"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  checkout-gateway:
+    build:
+      context: .
+      dockerfile: services/checkout-gateway/Dockerfile
+    environment:
+      ORDERS_API_URL: http://orders-api:3000
+      WORKER_URL: http://settlement-worker:3001
+      SERVICE_VERSION: local
+      LOG_LEVEL: debug
+      PORT: "3000"
+    ports:
+      - "8081:3000"
+    depends_on:
+      - orders-api
+      - settlement-worker
+
+  storefront:
+    build:
+      context: .
+      dockerfile: services/storefront/Dockerfile
+    environment:
+      GATEWAY_URL: http://checkout-gateway:3000
+      SERVICE_VERSION: local
+      LOG_LEVEL: debug
+      PORT: "3000"
+    ports:
+      - "8080:3000"
+    depends_on:
+      - checkout-gateway
