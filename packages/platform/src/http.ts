@@ -1,6 +1,6 @@
 import * as http from "node:http";
 import type { Registry } from "prom-client";
-import type { AppMetrics } from "./metrics.js";
+import type { Metrics } from "./metrics.js";
 import type { Logger } from "./logger.js";
 
 export type RouteHandler = (
@@ -26,7 +26,7 @@ export type RouteMatcher = (method: string, path: string) => string | null;
 export interface HttpServerOptions {
   port: number;
   service: string;
-  metrics: AppMetrics;
+  metrics: Metrics;
   logger: Logger;
   /** Extra routes beyond the built-in /healthz, /readyz, /metrics. */
   routes?: RouteEntry[];
@@ -131,10 +131,10 @@ export function createHttpServer(opts: HttpServerOptions): http.Server {
 
     const finish = (status: number, routeTemplate: string) => {
       const duration = (performance.now() - start) / 1000;
-      metrics.httpServerRequestsTotal
+      metrics.httpServerRequests
         .labels(service, method, routeTemplate, String(status))
         .inc();
-      metrics.httpServerRequestDurationSeconds
+      metrics.httpServerDuration
         .labels(service, method, routeTemplate)
         .observe(duration);
     };
