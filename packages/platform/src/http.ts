@@ -3,7 +3,7 @@ import type { Registry } from "prom-client";
 import type { Metrics } from "./metrics.js";
 import type { Logger } from "./logger.js";
 
-export type RouteHandler = (
+type HttpRouteHandler = (
   req: http.IncomingMessage,
   res: http.ServerResponse,
   params: Record<string, string>,
@@ -14,7 +14,7 @@ interface RouteEntry {
   pattern: RegExp;
   paramNames: string[];
   template: string;
-  handler: RouteHandler;
+  handler: HttpRouteHandler;
 }
 
 /**
@@ -46,7 +46,7 @@ function parsePath(pattern: string): { re: RegExp; paramNames: string[] } {
 export function route(
   method: string,
   pattern: string,
-  handler: RouteHandler,
+  handler: HttpRouteHandler,
 ): RouteEntry {
   const { re, paramNames } = parsePath(pattern);
   return {
@@ -63,7 +63,7 @@ export function buildRouter(entries: RouteEntry[]): {
     method: string,
     path: string,
   ) => {
-    handler: RouteHandler;
+    handler: HttpRouteHandler;
     params: Record<string, string>;
     template: string;
   } | null;
