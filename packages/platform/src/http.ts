@@ -111,6 +111,20 @@ export function sendHtml(
   res.end(html);
 }
 
+export function sendText(
+  res: http.ServerResponse,
+  status: number,
+  text: string,
+  headers: Record<string, string> = {},
+): void {
+  res.writeHead(status, {
+    "Content-Type": "text/plain; charset=utf-8",
+    "Content-Length": Buffer.byteLength(text),
+    ...headers,
+  });
+  res.end(text);
+}
+
 /**
  * Creates an HTTP server wired with:
  *  - built-in /healthz, /readyz, /metrics
