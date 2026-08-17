@@ -1,0 +1,22 @@
+{
+  "name": "@sample-app/orders-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "node --import tsx --watch src/index.ts",
+    "migrate": "node dist/db/migrate-cli.js",
+    "migrate:dev": "node --import tsx src/db/migrate-cli.ts"
+  },
+  "dependencies": {
+    "@sample-app/contracts": "*",
+    "@sample-app/platform": "*",
+    "pg": "8.23.0"
+  },
+  "devDependencies": {
+    "@types/pg": "8.21.0"
+  }
+}
