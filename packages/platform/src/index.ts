@@ -7,4 +7,5 @@ export * from "./http.js";
 export * from "./http-client.js";
 export * from "./shutdown.js";
 export * from "./semaphore.js";
+export * from "./tracing.js";
 export * from "./otel.js";
