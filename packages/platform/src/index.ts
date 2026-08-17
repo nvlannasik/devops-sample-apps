@@ -4,6 +4,7 @@ export * from "./metrics.js";
 export * from "./rolling-stats.js";
 export * from "./router.js";
 export * from "./http.js";
+export * from "./http-server.js";
 export * from "./http-client.js";
 export * from "./shutdown.js";
 export * from "./semaphore.js";

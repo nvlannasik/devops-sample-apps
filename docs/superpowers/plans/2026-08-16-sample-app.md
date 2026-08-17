@@ -91,7 +91,7 @@ One responsibility per file. `platform` is where a second copy would otherwise a
 - Consumes: nothing.
 - Produces: package `@sample-app/contracts` exporting `OrderStatus`, `OrderItem`, `CartItem`, `OrderRow`, `CreateOrderRequest`, `OrderV1`, `OrderV2`, `CATALOG`, `UnknownSkuError`, `priceOf(sku): number | null`, `computeItems(cart): OrderItem[]`, `computeAmountCents(items): number`, `HopState`, `ServiceStats`, `HopStatus`, `QueueStats`, `ChainStatus`. Root scripts `npm run build:libs`, `npm test`.
 
-- [ ] **Step 1: Initialise the repo and root files**
+- [x] **Step 1: Initialise the repo and root files**
 
 ```bash
 export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH
@@ -175,7 +175,7 @@ docs
 docker-compose.yml
 ```
 
-- [ ] **Step 2: Create the contracts package**
+- [x] **Step 2: Create the contracts package**
 
 `packages/contracts/package.json`:
 
@@ -203,7 +203,7 @@ docker-compose.yml
 }
 ```
 
-- [ ] **Step 3: Write the failing test**
+- [x] **Step 3: Write the failing test**
 
 `packages/contracts/src/catalog.test.ts`:
 
@@ -247,7 +247,7 @@ test("computeAmountCents multiplies and sums every line", () => {
 });
 ```
 
-- [ ] **Step 4: Run the test to verify it fails**
+- [x] **Step 4: Run the test to verify it fails**
 
 ```bash
 export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH
@@ -257,7 +257,7 @@ npm test
 
 Expected: FAIL — `Cannot find module './catalog.js'`.
 
-- [ ] **Step 5: Write `packages/contracts/src/catalog.ts`**
+- [x] **Step 5: Write `packages/contracts/src/catalog.ts`**
 
 ```ts
 export interface CatalogProduct {
@@ -315,7 +315,7 @@ export function computeAmountCents(items: OrderItem[]): number {
 }
 ```
 
-- [ ] **Step 6: Write `packages/contracts/src/orders.ts`**
+- [x] **Step 6: Write `packages/contracts/src/orders.ts`**
 
 ```ts
 import type { CartItem, OrderItem } from "./catalog.js";
@@ -364,7 +364,7 @@ export interface OrderV2 {
 }
 ```
 
-- [ ] **Step 7: Write `packages/contracts/src/chain.ts`**
+- [x] **Step 7: Write `packages/contracts/src/chain.ts`**
 
 ```ts
 export type HopState = "ok" | "degraded" | "unreachable";
@@ -398,7 +398,7 @@ export interface ChainStatus {
 }
 ```
 
-- [ ] **Step 8: Write `packages/contracts/src/index.ts`**
+- [x] **Step 8: Write `packages/contracts/src/index.ts`**
 
 ```ts
 export * from "./catalog.js";
@@ -406,7 +406,7 @@ export * from "./orders.js";
 export * from "./chain.js";
 ```
 
-- [ ] **Step 9: Run the tests and the build**
+- [x] **Step 9: Run the tests and the build**
 
 ```bash
 export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH
@@ -416,7 +416,7 @@ npm run build:libs
 
 Expected: 7 tests pass, `packages/contracts/dist/index.js` and `index.d.ts` exist.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add -A
@@ -436,7 +436,7 @@ git commit -m "feat: workspace scaffold and shared contracts package"
 - Consumes: nothing from earlier tasks.
 - Produces: `ConfigError`, `EnvSource = Record<string, string | undefined>`, `LogLevel = "debug"|"info"|"warn"|"error"`, `requireStr(env,key)`, `optStr(env,key,def)`, `optInt(env,key,def,{min?,max?})`, `optBool(env,key,def)`, `requireUrl(env,key)`, `optLogLevel(env,key,def)`, `CommonConfig`, `loadCommonConfig(env): CommonConfig`, `redactValue(key,value)`, `redactConfig(obj)`, `loadOrExit<T>(load, env?, io?)`.
 
-- [ ] **Step 1: Create the platform package files**
+- [x] **Step 1: Create the platform package files**
 
 `packages/platform/package.json` — dependency versions are the ones verified against the registry on 2026-08-16; keep them exact:
 
@@ -477,7 +477,7 @@ git commit -m "feat: workspace scaffold and shared contracts package"
 
 Then install: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm install`
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 `packages/platform/src/config.test.ts`:
 
@@ -587,7 +587,7 @@ test("loadOrExit writes the reason to stdout and exits 1 on a bad value", () => 
 });
 ```
 
-- [ ] **Step 3: Run the test to verify it fails**
+- [x] **Step 3: Run the test to verify it fails**
 
 ```bash
 export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH
@@ -596,7 +596,7 @@ npm test
 
 Expected: FAIL — `Cannot find module './config.js'`.
 
-- [ ] **Step 4: Write `packages/platform/src/config.ts`**
+- [x] **Step 4: Write `packages/platform/src/config.ts`**
 
 ```ts
 export type EnvSource = Record<string, string | undefined>;
@@ -746,7 +746,7 @@ export function loadOrExit<T>(
 }
 ```
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
 
 ```bash
 export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH
@@ -755,7 +755,7 @@ npm test
 
 Expected: PASS (13 config tests + 7 catalog tests).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add -A
@@ -774,7 +774,7 @@ git commit -m "feat(platform): config loading, validation, redaction"
 - Consumes: `LogLevel` from `./config.js`.
 - Produces: `Logger` (`debug|info|warn|error(msg: string, fields?: LogFields): void`), `LogFields = Record<string, unknown>`, `LoggerOptions`, `createLogger(opts): Logger`, `serializeError(err): { type: string; msg: string; stack?: string }`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `packages/platform/src/logger.test.ts`:
 
@@ -844,12 +844,12 @@ test("serializeError handles a non-Error throw", () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm test`
 Expected: FAIL — `Cannot find module './logger.js'`.
 
-- [ ] **Step 3: Write `packages/platform/src/logger.ts`**
+- [x] **Step 3: Write `packages/platform/src/logger.ts`**
 
 ```ts
 import type { LogLevel } from "./config.js";
@@ -914,12 +914,12 @@ export function createLogger(opts: LoggerOptions): Logger {
 }
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm test`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A
@@ -938,7 +938,7 @@ git commit -m "feat(platform): JSON stdout logger with trace context"
 - Consumes: nothing from earlier tasks.
 - Produces: `DURATION_BUCKETS: number[]`, `BATCH_SIZE_BUCKETS: number[]`, `Metrics` (fields: `registry`, `service`, `httpServerRequests`, `httpServerDuration`, `httpClientRequests`, `httpClientDuration`, `dbPoolConnections`, `dbQueryDuration`, `cacheRequests`, `queueDepth`, `queueOldestJobAge`, `settlementJobs`, `settlementBatchSize`, `buildInfo`), `createMetrics({service,version,commit}): Metrics`, `PoolLike`, `bindPoolMetrics(metrics, pool)`, `StatsSnapshot`, `RollingStats`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `packages/platform/src/rolling-stats.test.ts`:
 
@@ -1053,12 +1053,12 @@ test("bindPoolMetrics reports idle, busy and waiting from the pool counters", as
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm test`
 Expected: FAIL — `Cannot find module './rolling-stats.js'` and `'./metrics.js'`.
 
-- [ ] **Step 3: Write `packages/platform/src/rolling-stats.ts`**
+- [x] **Step 3: Write `packages/platform/src/rolling-stats.ts`**
 
 ```ts
 export interface StatsSnapshot {
@@ -1121,7 +1121,7 @@ export class RollingStats {
 }
 ```
 
-- [ ] **Step 4: Write `packages/platform/src/metrics.ts`**
+- [x] **Step 4: Write `packages/platform/src/metrics.ts`**
 
 ```ts
 import { Counter, Gauge, Histogram, Registry, collectDefaultMetrics } from "prom-client";
@@ -1254,12 +1254,12 @@ export function bindPoolMetrics(metrics: Metrics, pool: PoolLike): void {
 }
 ```
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm test`
 Expected: PASS. If the bucket-ordering assertion fails, print the `/metrics` text and check that `DURATION_BUCKETS` was passed to the histogram — do not change the expected bucket list.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add -A
@@ -1278,7 +1278,7 @@ git commit -m "feat(platform): prometheus metrics registry and rolling stats win
 - Consumes: nothing from earlier tasks.
 - Produces: `RouteParams = Record<string, string>`, `RouteContext { req, res, params, url, readBody() }`, `RouteHandler = (ctx) => Promise<void> | void`, `Route { method, pattern, handler }`, `UNMATCHED_ROUTE = "__unmatched__"`, `matchPath(pattern, pathname): RouteParams | null`, `matchRoute(routes, method, pathname): { route, params } | null`, `readBody(req, maxBytes?): Promise<string>`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `packages/platform/src/router.test.ts`:
 
@@ -1328,12 +1328,12 @@ test("UNMATCHED_ROUTE is a fixed label so a 404 flood cannot explode cardinality
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm test`
 Expected: FAIL — `Cannot find module './router.js'`.
 
-- [ ] **Step 3: Write `packages/platform/src/router.ts`**
+- [x] **Step 3: Write `packages/platform/src/router.ts`**
 
 ```ts
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -1413,12 +1413,12 @@ export function readBody(req: IncomingMessage, maxBytes = MAX_BODY_BYTES): Promi
 }
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm test`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A
@@ -1437,7 +1437,7 @@ git commit -m "feat(platform): route matcher with templated metric labels"
 - Consumes: `CommonConfig` (Task 2), `Logger` (Task 3), `Metrics` + `RollingStats` (Task 4), `Route`/`matchRoute`/`readBody`/`UNMATCHED_ROUTE` (Task 5), `ServiceStats` from `@sample-app/contracts` (Task 1).
 - Produces: `ProbeResult { ok: boolean; detail?: string }`, `AppDeps`, `createApp(deps): http.Server`, `sendJson(res, status, body)`, `sendHtml(res, status, html)`, `sendText(res, status, body, headers?)`, `INTROSPECTION_ROUTES: string[]`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `packages/platform/src/http-server.test.ts`:
 
@@ -1585,12 +1585,12 @@ test("stats reports the rolling window for this service", async () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm test`
 Expected: FAIL — `Cannot find module './http-server.js'`.
 
-- [ ] **Step 3: Write `packages/platform/src/http-server.ts`**
+- [x] **Step 3: Write `packages/platform/src/http-server.ts`**
 
 ```ts
 import http from "node:http";
@@ -1730,12 +1730,12 @@ export function createApp(deps: AppDeps): http.Server {
 }
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm test`
 Expected: PASS — 11 http-server tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A
@@ -1754,7 +1754,7 @@ git commit -m "feat(platform): http server with probes, metrics and stats endpoi
 - Consumes: `Logger` (Task 3).
 - Produces: `ShutdownTask { name: string; run: () => Promise<void> }`, `ShutdownOptions`, `installShutdown(opts): () => Promise<void>`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `packages/platform/src/shutdown.test.ts`:
 
@@ -1873,12 +1873,12 @@ test("shutdown is idempotent", async () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm test`
 Expected: FAIL — `Cannot find module './shutdown.js'`.
 
-- [ ] **Step 3: Write `packages/platform/src/shutdown.ts`**
+- [x] **Step 3: Write `packages/platform/src/shutdown.ts`**
 
 ```ts
 import type { Server } from "node:http";
@@ -1956,12 +1956,12 @@ function closeServer(server: Server, timeoutMs: number, logger: Logger): Promise
 }
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm test`
 Expected: PASS — 6 shutdown tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A
@@ -1980,7 +1980,7 @@ git commit -m "feat(platform): graceful shutdown with drain timeout"
 - Consumes: `Metrics` (Task 4).
 - Produces: `DownstreamErrorKind = "timeout"|"network"|"status"|"parse"`, `DownstreamError` (fields `peer`, `kind`, `status?`), `statusForDownstream(err): number`, `RequestOptions { timeoutMs?, headers? }`, `HttpClient { getJson<T>(peer,url,opts?), postJson<T>(peer,url,body,opts?) }`, `createHttpClient({service, metrics, timeoutMs}): HttpClient`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `packages/platform/src/http-client.test.ts`:
 
@@ -2105,12 +2105,12 @@ test("statusForDownstream maps timeout to 504 and everything else to 502", () =>
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm test`
 Expected: FAIL — `Cannot find module './http-client.js'`.
 
-- [ ] **Step 3: Write `packages/platform/src/http-client.ts`**
+- [x] **Step 3: Write `packages/platform/src/http-client.ts`**
 
 ```ts
 import type { Metrics } from "./metrics.js";
@@ -2219,12 +2219,12 @@ export function createHttpClient(deps: HttpClientDeps): HttpClient {
 }
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm test`
 Expected: PASS — 7 http-client tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A
@@ -2243,7 +2243,7 @@ git commit -m "feat(platform): instrumented http client with peer-labelled metri
 - Consumes: nothing from earlier tasks.
 - Produces: `Semaphore { acquire(): Promise<() => void>; readonly inFlight: number; readonly queued: number }`, `createSemaphore(limit: number): Semaphore`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `packages/platform/src/semaphore.test.ts`:
 
@@ -2297,12 +2297,12 @@ test("releasing twice does not hand out an extra permit", async () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm test`
 Expected: FAIL — `Cannot find module './semaphore.js'`.
 
-- [ ] **Step 3: Write `packages/platform/src/semaphore.ts`**
+- [x] **Step 3: Write `packages/platform/src/semaphore.ts`**
 
 ```ts
 export interface Semaphore {
@@ -2355,12 +2355,12 @@ export function createSemaphore(limit: number): Semaphore {
 }
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm test`
 Expected: PASS — 3 semaphore tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A
@@ -2379,7 +2379,7 @@ git commit -m "feat(platform): bounded concurrency semaphore"
 - Consumes: `Logger` (Task 3).
 - Produces: `TraceIds { trace_id?: string; span_id?: string }`, `traceContext(): TraceIds`, `currentTraceparent(): string | null`, `parseTraceparent(tp): { traceId, spanId, sampled } | null`, `formatTraceparent(traceId, spanId, sampled): string`, `withRemoteParent<T>(traceparent, spanName, fn): Promise<T>`, `Tracing { shutdown(): Promise<void> }`, `initTracing(opts): Tracing | null`. Plus `packages/platform/src/index.ts` re-exporting every platform module.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `packages/platform/src/tracing.test.ts`:
 
@@ -2445,12 +2445,12 @@ test("initTracing returns null and warns once when no OTLP endpoint is configure
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm test`
 Expected: FAIL — `Cannot find module './tracing.js'`.
 
-- [ ] **Step 3: Write `packages/platform/src/tracing.ts`**
+- [x] **Step 3: Write `packages/platform/src/tracing.ts`**
 
 The OTel package surface moves between majors. The symbols below were checked against the versions pinned in Task 1. If an import throws `SyntaxError: The requested module does not provide an export named X`, open `node_modules/@opentelemetry/<pkg>/build/src/index.d.ts` and use the current name — **do not downgrade the package and do not add a new one.**
 
@@ -2590,7 +2590,7 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 ```
 
-- [ ] **Step 4: Write `packages/platform/src/index.ts`**
+- [x] **Step 4: Write `packages/platform/src/index.ts`**
 
 ```ts
 export * from "./config.js";
@@ -2605,7 +2605,7 @@ export * from "./semaphore.js";
 export * from "./tracing.js";
 ```
 
-- [ ] **Step 5: Run the tests and the library build**
+- [x] **Step 5: Run the tests and the library build**
 
 ```bash
 export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH
@@ -2615,7 +2615,7 @@ npm run build:libs
 
 Expected: PASS — 9 tracing tests. `packages/platform/dist/index.d.ts` exists.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add -A
@@ -2638,7 +2638,7 @@ git commit -m "feat(platform): otel bootstrap, traceparent helpers, package barr
 - Consumes: `Logger` (Task 3).
 - Produces: `pendingMigrations(files: string[], applied: Set<string>): string[]`, `migrationsDir(): string`, `migrationFiles(): string[]`, `runMigrations(pool, logger): Promise<void>`, `appliedVersions(pool): Promise<Set<string>>`, `assertSchemaCurrent(pool, logger): Promise<void>`, and the `orders` / `settlement_jobs` schema.
 
-- [ ] **Step 1: Write the migrations**
+- [x] **Step 1: Write the migrations**
 
 `db/migrations/001_orders.sql`:
 
@@ -2674,7 +2674,7 @@ CREATE INDEX IF NOT EXISTS settlement_jobs_claimable
   ON settlement_jobs (available_at) WHERE locked_at IS NULL;
 ```
 
-- [ ] **Step 2: Create the orders-api workspace and a Postgres to test against**
+- [x] **Step 2: Create the orders-api workspace and a Postgres to test against**
 
 `services/orders-api/package.json`:
 
@@ -2746,7 +2746,7 @@ SERVICE_VERSION=dev
 
 Then: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm install && docker compose up -d postgres`
 
-- [ ] **Step 3: Write the failing test**
+- [x] **Step 3: Write the failing test**
 
 `services/orders-api/src/db/migrate.test.ts`:
 
@@ -2809,12 +2809,12 @@ test("assertSchemaCurrent throws when a migration has not been applied", { skip:
 });
 ```
 
-- [ ] **Step 4: Run the test to verify it fails**
+- [x] **Step 4: Run the test to verify it fails**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && TEST_DATABASE_URL=postgres://sample:sample@127.0.0.1:5432/sample_app npm test`
 Expected: FAIL — `Cannot find module './migrate.js'`.
 
-- [ ] **Step 5: Write `services/orders-api/src/db/migrate.ts`**
+- [x] **Step 5: Write `services/orders-api/src/db/migrate.ts`**
 
 ```ts
 import { readFileSync, readdirSync } from "node:fs";
@@ -2904,7 +2904,7 @@ export async function assertSchemaCurrent(pool: Pool, logger: Logger): Promise<v
 }
 ```
 
-- [ ] **Step 6: Write `services/orders-api/src/db/migrate-cli.ts`**
+- [x] **Step 6: Write `services/orders-api/src/db/migrate-cli.ts`**
 
 This is what the Kubernetes migration Job runs (12-factor XII: admin processes ship in the same image).
 
@@ -2933,7 +2933,7 @@ try {
 }
 ```
 
-- [ ] **Step 7: Run the tests with a database**
+- [x] **Step 7: Run the tests with a database**
 
 ```bash
 export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH
@@ -2943,7 +2943,7 @@ TEST_DATABASE_URL=postgres://sample:sample@127.0.0.1:5432/sample_app npm test
 
 Expected: PASS — 5 migrate tests, none skipped. Then verify they are skipped, not failed, without a database: `npm test` alone must still pass.
 
-- [ ] **Step 8: Run the migration CLI end to end**
+- [x] **Step 8: Run the migration CLI end to end**
 
 ```bash
 export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH
@@ -2952,7 +2952,7 @@ DATABASE_URL=postgres://sample:sample@127.0.0.1:5432/sample_app npm run migrate:
 
 Expected: exit 0, one `applying migration` line per file on the first run, `schema up to date` on the second.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add -A
@@ -2971,7 +2971,7 @@ git commit -m "feat(orders-api): database schema and idempotent migration runner
 - Consumes: `CommonConfig`, `loadCommonConfig`, `optInt`, `optBool`, `requireStr`, `ConfigError` (Task 2); `OrderRow`, `OrderV1`, `OrderV2` (Task 1).
 - Produces: `OrdersApiConfig` (extends `CommonConfig` with `databaseUrl`, `dbPoolMax`, `dbStatementTimeoutMs`, `migrationRequired`, `orderResponseVersion: 1 | 2`, `livenessChecksDb`), `loadConfig(env): OrdersApiConfig`, `serializeOrder(row: OrderRow, version: 1 | 2): OrderV1 | OrderV2`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `services/orders-api/src/config.test.ts`:
 
@@ -3082,12 +3082,12 @@ test("items are untouched by the version switch", () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm test`
 Expected: FAIL — `Cannot find module './config.js'` and `'./serialize.js'`.
 
-- [ ] **Step 3: Write `services/orders-api/src/config.ts`**
+- [x] **Step 3: Write `services/orders-api/src/config.ts`**
 
 ```ts
 import {
@@ -3127,7 +3127,7 @@ export function loadConfig(env: EnvSource): OrdersApiConfig {
 }
 ```
 
-- [ ] **Step 4: Write `services/orders-api/src/serialize.ts`**
+- [x] **Step 4: Write `services/orders-api/src/serialize.ts`**
 
 ```ts
 import type { OrderRow, OrderV1, OrderV2 } from "@sample-app/contracts";
@@ -3160,12 +3160,12 @@ export function serializeOrder(row: OrderRow, version: 1 | 2): OrderV1 | OrderV2
 }
 ```
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm test`
 Expected: PASS — 5 config tests, 4 serialize tests.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add -A
@@ -3184,7 +3184,7 @@ git commit -m "feat(orders-api): config and versioned order serialisation"
 - Consumes: `Metrics` (Task 4), `currentTraceparent` (Task 10), `OrdersApiConfig` (Task 12), `runMigrations` (Task 11), `OrderRow`, `OrderItem` (Task 1).
 - Produces: `createPool(config): pg.Pool`, `OrdersRepo` with `createOrderWithJob(input): Promise<OrderRow>`, `getOrder(id): Promise<OrderRow | null>`, `listOrders(limit): Promise<OrderRow[]>`, `ping(): Promise<void>`; `createOrdersRepo(pool, { metrics, service }): OrdersRepo`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `services/orders-api/src/db/orders-repo.test.ts`:
 
@@ -3280,12 +3280,12 @@ test("ping resolves against a healthy database", { skip: !DB }, async () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && TEST_DATABASE_URL=postgres://sample:sample@127.0.0.1:5432/sample_app npm test`
 Expected: FAIL — `Cannot find module './orders-repo.js'`.
 
-- [ ] **Step 3: Write `services/orders-api/src/db/pool.ts`**
+- [x] **Step 3: Write `services/orders-api/src/db/pool.ts`**
 
 ```ts
 import pg from "pg";
@@ -3308,7 +3308,7 @@ export function createPool(config: Pick<OrdersApiConfig, "databaseUrl" | "dbPool
 }
 ```
 
-- [ ] **Step 4: Write `services/orders-api/src/db/orders-repo.ts`**
+- [x] **Step 4: Write `services/orders-api/src/db/orders-repo.ts`**
 
 ```ts
 import type { Pool } from "pg";
@@ -3397,12 +3397,12 @@ export function createOrdersRepo(pool: Pool, deps: { metrics: Metrics; service: 
 }
 ```
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && TEST_DATABASE_URL=postgres://sample:sample@127.0.0.1:5432/sample_app npm test`
 Expected: PASS — 7 repo tests, none skipped.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add -A
@@ -3421,7 +3421,7 @@ git commit -m "feat(orders-api): postgres pool and orders repository"
 - Consumes: everything from Tasks 1–13.
 - Produces: `RouteDeps`, `createRoutes(deps): Route[]`, a runnable `orders-api` service, and the image built from `services/orders-api/Dockerfile` with the repo root as context.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `services/orders-api/src/routes.test.ts` — the repository is stubbed here on purpose: these tests are about HTTP behaviour, and the real database is exercised in Task 13.
 
@@ -3568,12 +3568,12 @@ test("GET /orders caps limit at 100 and rejects a non-numeric limit", async () =
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm test`
 Expected: FAIL — `Cannot find module './routes.js'`.
 
-- [ ] **Step 3: Write `services/orders-api/src/routes.ts`**
+- [x] **Step 3: Write `services/orders-api/src/routes.ts`**
 
 ```ts
 import { randomUUID } from "node:crypto";
@@ -3666,7 +3666,7 @@ export function createRoutes(deps: RouteDeps): Route[] {
 }
 ```
 
-- [ ] **Step 4: Write `services/orders-api/src/index.ts`**
+- [x] **Step 4: Write `services/orders-api/src/index.ts`**
 
 ```ts
 import {
@@ -3761,7 +3761,7 @@ installShutdown({
 server.listen(config.port, () => logger.info("listening", { port: config.port }));
 ```
 
-- [ ] **Step 5: Write `services/orders-api/Dockerfile`**
+- [x] **Step 5: Write `services/orders-api/Dockerfile`**
 
 Build context is the repo root: `docker build -f services/orders-api/Dockerfile -t orders-api:$(git rev-parse --short HEAD) .`
 
@@ -3817,7 +3817,7 @@ EXPOSE 3000
 CMD ["node", "services/orders-api/dist/index.js"]
 ```
 
-- [ ] **Step 6: Run the tests, then the service end to end**
+- [x] **Step 6: Run the tests, then the service end to end**
 
 ```bash
 export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH
@@ -3836,7 +3836,7 @@ kill %1
 
 Expected: `/readyz` returns `{"status":"ready"...}`, the POST returns 201 with `amount_cents: 2598`, and `/metrics` shows `build_info`, `http_server_requests_total{...route="/orders"...}` and `db_query_duration_seconds`.
 
-- [ ] **Step 7: Build the image**
+- [x] **Step 7: Build the image**
 
 ```bash
 docker build -f services/orders-api/Dockerfile \
@@ -3846,7 +3846,7 @@ docker build -f services/orders-api/Dockerfile \
 
 Expected: the build succeeds from the repo root context.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add -A
@@ -3865,7 +3865,7 @@ git commit -m "feat(orders-api): routes, boot sequence and dockerfile"
 - Consumes: `loadCommonConfig`, `optInt`, `requireUrl`, `CommonConfig`, `EnvSource` (Task 2).
 - Produces: `GatewayConfig` (extends `CommonConfig` with `ordersApiUrl`, `workerUrl`, `downstreamTimeoutMs`, `cacheTtlSeconds`, `cacheMaxEntries`), `loadConfig(env)`, `TtlCache<T>` with `get`/`set`/`size`, `createCache<T>({ttlSeconds, maxEntries, now?})`.
 
-- [ ] **Step 1: Write `services/checkout-gateway/package.json` and `tsconfig.json`**
+- [x] **Step 1: Write `services/checkout-gateway/package.json` and `tsconfig.json`**
 
 `services/checkout-gateway/package.json`:
 
@@ -3905,7 +3905,7 @@ git commit -m "feat(orders-api): routes, boot sequence and dockerfile"
 }
 ```
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 `services/checkout-gateway/src/config.test.ts`:
 
@@ -4011,12 +4011,12 @@ test("re-setting a key refreshes it without growing the cache", () => {
 });
 ```
 
-- [ ] **Step 3: Run the tests to verify they fail**
+- [x] **Step 3: Run the tests to verify they fail**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm test`
 Expected: FAIL — `Cannot find module './config.js'` and `'./cache.js'`.
 
-- [ ] **Step 4: Write `services/checkout-gateway/src/config.ts`**
+- [x] **Step 4: Write `services/checkout-gateway/src/config.ts`**
 
 ```ts
 import { loadCommonConfig, optInt, requireUrl, type CommonConfig, type EnvSource } from "@sample-app/platform";
@@ -4044,7 +4044,7 @@ export function loadConfig(env: EnvSource): GatewayConfig {
 }
 ```
 
-- [ ] **Step 5: Write `services/checkout-gateway/src/cache.ts`**
+- [x] **Step 5: Write `services/checkout-gateway/src/cache.ts`**
 
 ```ts
 export interface TtlCache<T> {
@@ -4097,12 +4097,12 @@ export function createCache<T>(opts: CacheOptions): TtlCache<T> {
 }
 ```
 
-- [ ] **Step 6: Run the tests**
+- [x] **Step 6: Run the tests**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm test`
 Expected: PASS — 5 config tests, 6 cache tests.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add -A
@@ -4121,7 +4121,7 @@ git commit -m "feat(checkout-gateway): config and bounded ttl cache"
 - Consumes: `HttpClient`, `DownstreamError`, `statusForDownstream` (Task 8); `createApp`, `sendJson` (Task 6); `TtlCache` (Task 15); `ChainStatus`, `HopStatus`, `ServiceStats`, `QueueStats` (Task 1).
 - Produces: `DEGRADED_ERROR_RATE`, `DEGRADED_P99_MS`, `probeHop(client, name, statsUrl)`, `buildChainStatus(deps): Promise<ChainStatus>`, `assertOrderV1(payload): OrderV1`, `createRoutes(deps): Route[]`, and the `checkout-gateway` image.
 
-- [ ] **Step 1: Write `services/checkout-gateway/src/chain.test.ts`**
+- [x] **Step 1: Write `services/checkout-gateway/src/chain.test.ts`**
 
 ```ts
 import { test } from "node:test";
@@ -4223,12 +4223,12 @@ test("the gateway's own hop needs no network call", async () => {
 });
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm test`
 Expected: FAIL — `Cannot find module './chain.js'`.
 
-- [ ] **Step 3: Write `services/checkout-gateway/src/chain.ts`**
+- [x] **Step 3: Write `services/checkout-gateway/src/chain.ts`**
 
 ```ts
 import type { ChainStatus, HopStatus, QueueStats, ServiceStats } from "@sample-app/contracts";
@@ -4287,7 +4287,7 @@ export async function buildChainStatus(deps: ChainDeps): Promise<ChainStatus> {
 }
 ```
 
-- [ ] **Step 4: Write `services/checkout-gateway/src/routes.test.ts`**
+- [x] **Step 4: Write `services/checkout-gateway/src/routes.test.ts`**
 
 ```ts
 import { test } from "node:test";
@@ -4471,12 +4471,12 @@ test("GET /api/chain-status returns the aggregate and stays 200 with a dead hop"
 });
 ```
 
-- [ ] **Step 5: Run it to verify it fails**
+- [x] **Step 5: Run it to verify it fails**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm test`
 Expected: FAIL — `Cannot find module './routes.js'`.
 
-- [ ] **Step 6: Write `services/checkout-gateway/src/routes.ts`**
+- [x] **Step 6: Write `services/checkout-gateway/src/routes.ts`**
 
 ```ts
 import type { OrderV1, ServiceStats } from "@sample-app/contracts";
@@ -4585,7 +4585,7 @@ export function createRoutes(deps: RouteDeps): Route[] {
 }
 ```
 
-- [ ] **Step 7: Write `services/checkout-gateway/src/index.ts`**
+- [x] **Step 7: Write `services/checkout-gateway/src/index.ts`**
 
 ```ts
 import {
@@ -4666,7 +4666,7 @@ installShutdown({
 server.listen(config.port, () => logger.info("listening", { port: config.port }));
 ```
 
-- [ ] **Step 8: Write `services/checkout-gateway/Dockerfile`**
+- [x] **Step 8: Write `services/checkout-gateway/Dockerfile`**
 
 ```dockerfile
 # Build context is the repository root — packages/ is shared by every service.
@@ -4718,7 +4718,7 @@ EXPOSE 3000
 CMD ["node", "services/checkout-gateway/dist/index.js"]
 ```
 
-- [ ] **Step 9: Run the tests and build the image**
+- [x] **Step 9: Run the tests and build the image**
 
 ```bash
 export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH
@@ -4731,7 +4731,7 @@ docker build -f services/checkout-gateway/Dockerfile \
 
 Expected: PASS — 6 chain tests, 9 route tests; the image builds.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add -A
@@ -4750,7 +4750,7 @@ git commit -m "feat(checkout-gateway): chain-status aggregation, routes and dock
 - Consumes: `loadCommonConfig`, `optInt`, `optBool`, `requireStr` (Task 2); `Metrics` (Task 4); `QueueStats` (Task 1); the schema from Task 11.
 - Produces: `WorkerConfig` (extends `CommonConfig` with `databaseUrl`, `dbPoolMax`, `batchSize`, `pollIntervalMs`, `maxAttempts`, `verbosePayload`), `loadConfig(env)`, `createPool(config)`, `SettlementJob`, `QueueRepo` (`claimBatch`, `settle`, `retry`, `fail`, `stats`, `ping`), `createQueueRepo(pool, {metrics, service})`, `RETRY_BACKOFF_BASE_MS`.
 
-- [ ] **Step 1: Write `services/settlement-worker/package.json` and `tsconfig.json`**
+- [x] **Step 1: Write `services/settlement-worker/package.json` and `tsconfig.json`**
 
 `services/settlement-worker/package.json`:
 
@@ -4794,7 +4794,7 @@ git commit -m "feat(checkout-gateway): chain-status aggregation, routes and dock
 }
 ```
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 `services/settlement-worker/src/config.test.ts`:
 
@@ -4983,12 +4983,12 @@ test("queue queries are recorded under db_query_duration_seconds", { skip: !DB }
 });
 ```
 
-- [ ] **Step 3: Run the tests to verify they fail**
+- [x] **Step 3: Run the tests to verify they fail**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && TEST_DATABASE_URL=postgres://sample:sample@127.0.0.1:5432/sample_app npm test`
 Expected: FAIL — `Cannot find module './config.js'` and `'./queue.js'`.
 
-- [ ] **Step 4: Write `services/settlement-worker/src/config.ts`**
+- [x] **Step 4: Write `services/settlement-worker/src/config.ts`**
 
 ```ts
 import { loadCommonConfig, optBool, optInt, requireStr, type CommonConfig, type EnvSource } from "@sample-app/platform";
@@ -5018,7 +5018,7 @@ export function loadConfig(env: EnvSource): WorkerConfig {
 }
 ```
 
-- [ ] **Step 5: Write `services/settlement-worker/src/db.ts`**
+- [x] **Step 5: Write `services/settlement-worker/src/db.ts`**
 
 ```ts
 import pg from "pg";
@@ -5039,7 +5039,7 @@ export function createPool(config: Pick<WorkerConfig, "databaseUrl" | "dbPoolMax
 }
 ```
 
-- [ ] **Step 6: Write `services/settlement-worker/src/queue.ts`**
+- [x] **Step 6: Write `services/settlement-worker/src/queue.ts`**
 
 ```ts
 import type { Pool } from "pg";
@@ -5186,12 +5186,12 @@ export function createQueueRepo(pool: Pool, deps: { metrics: Metrics; service: s
 
 `reason` is accepted for the caller's log line and deliberately not persisted — the schema has no failure column, and adding one is out of scope.
 
-- [ ] **Step 7: Run the tests**
+- [x] **Step 7: Run the tests**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && TEST_DATABASE_URL=postgres://sample:sample@127.0.0.1:5432/sample_app npm test`
 Expected: PASS — 4 config tests, 11 queue tests, none skipped.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add -A
@@ -5210,7 +5210,7 @@ git commit -m "feat(settlement-worker): config and skip-locked queue repository"
 - Consumes: `QueueRepo`, `SettlementJob`, `RETRY_BACKOFF_BASE_MS` (Task 17); `withRemoteParent` (Task 10); `Metrics`, `Logger` (Tasks 3–4); `createApp` (Task 6).
 - Produces: `LoopDeps`, `runBatch(deps): Promise<number>`, `startLoop(deps): { stop(): Promise<void> }`, and the `settlement-worker` image serving `/healthz`, `/readyz`, `/metrics`, `/stats`, `/queue-stats`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `services/settlement-worker/src/loop.test.ts`:
 
@@ -5339,12 +5339,12 @@ test("a claim failure is logged and the loop survives it", async () => {
 });
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm test`
 Expected: FAIL — `Cannot find module './loop.js'`.
 
-- [ ] **Step 3: Write `services/settlement-worker/src/loop.ts`**
+- [x] **Step 3: Write `services/settlement-worker/src/loop.ts`**
 
 ```ts
 import { withRemoteParent, type Logger, type Metrics } from "@sample-app/platform";
@@ -5443,7 +5443,7 @@ export function startLoop(deps: LoopDeps): { stop(): Promise<void> } {
 }
 ```
 
-- [ ] **Step 4: Write `services/settlement-worker/src/index.ts`**
+- [x] **Step 4: Write `services/settlement-worker/src/index.ts`**
 
 ```ts
 import {
@@ -5535,7 +5535,7 @@ installShutdown({
 server.listen(config.port, () => logger.info("listening", { port: config.port }));
 ```
 
-- [ ] **Step 5: Write `services/settlement-worker/Dockerfile`**
+- [x] **Step 5: Write `services/settlement-worker/Dockerfile`**
 
 ```dockerfile
 # Build context is the repository root — packages/ is shared by every service.
@@ -5587,7 +5587,7 @@ EXPOSE 3001
 CMD ["node", "services/settlement-worker/dist/index.js"]
 ```
 
-- [ ] **Step 6: Run the tests, then the worker against a real database**
+- [x] **Step 6: Run the tests, then the worker against a real database**
 
 ```bash
 export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH
@@ -5604,7 +5604,7 @@ kill %1
 
 Expected: an order created in Task 14 moves to `settled` within a poll interval, `/queue-stats` returns `{"depth":0,"oldestAgeSeconds":0}`, and `settlement_jobs_total{result="ok"}` is non-zero.
 
-- [ ] **Step 7: Build the image**
+- [x] **Step 7: Build the image**
 
 ```bash
 docker build -f services/settlement-worker/Dockerfile \
@@ -5612,7 +5612,7 @@ docker build -f services/settlement-worker/Dockerfile \
   -t settlement-worker:$(git rev-parse --short HEAD) .
 ```
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add -A
@@ -5631,7 +5631,7 @@ git commit -m "feat(settlement-worker): settle loop, admin port and dockerfile"
 - Consumes: `CATALOG`, `OrderV1`, `ChainStatus`, `HopStatus` (Task 1).
 - Produces: `APP_CSS`, `esc(value)`, `formatCents(cents)`, `layout({title, assetHref, body})`, `catalogPage(assetHref)`, `orderPage(order, assetHref)`, `statusPage(chain, assetHref)`, `errorPage({status, message, traceId, assetHref})`.
 
-- [ ] **Step 1: Write `services/storefront/package.json` and `tsconfig.json`**
+- [x] **Step 1: Write `services/storefront/package.json` and `tsconfig.json`**
 
 `services/storefront/package.json`:
 
@@ -5672,7 +5672,7 @@ git commit -m "feat(settlement-worker): settle loop, admin port and dockerfile"
 }
 ```
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 `services/storefront/src/views.test.ts`:
 
@@ -5783,12 +5783,12 @@ test("the error page carries the trace id when there is one", () => {
 });
 ```
 
-- [ ] **Step 3: Run it to verify it fails**
+- [x] **Step 3: Run it to verify it fails**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm test`
 Expected: FAIL — `Cannot find module './views.js'`.
 
-- [ ] **Step 4: Write `services/storefront/src/assets.ts`**
+- [x] **Step 4: Write `services/storefront/src/assets.ts`**
 
 ```ts
 /**
@@ -5837,7 +5837,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 `;
 ```
 
-- [ ] **Step 5: Write `services/storefront/src/views.ts`**
+- [x] **Step 5: Write `services/storefront/src/views.ts`**
 
 ```ts
 import { CATALOG, type ChainStatus, type HopStatus, type OrderV1 } from "@sample-app/contracts";
@@ -5997,12 +5997,12 @@ export function errorPage(opts: ErrorPageOptions): string {
 }
 ```
 
-- [ ] **Step 6: Run the tests**
+- [x] **Step 6: Run the tests**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm test`
 Expected: PASS — 12 view tests.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add -A
@@ -6021,7 +6021,7 @@ git commit -m "feat(storefront): server-rendered views and versioned stylesheet"
 - Consumes: `createSemaphore` (Task 9); `createHttpClient`, `DownstreamError`, `statusForDownstream` (Task 8); `createApp`, `sendHtml`, `sendText` (Task 6); the views from Task 19.
 - Produces: `StorefrontConfig` (extends `CommonConfig` with `gatewayUrl`, `gatewayTimeoutMs`, `ssrConcurrency`, `assetCacheSeconds`, `assetVersion`), `loadConfig(env)`, `parseForm(body)`, `assetHref(version)`, `createRoutes(deps): Route[]`, and the `storefront` image.
 
-- [ ] **Step 1: Write `services/storefront/src/config.test.ts`**
+- [x] **Step 1: Write `services/storefront/src/config.test.ts`**
 
 ```ts
 import { test } from "node:test";
@@ -6058,7 +6058,7 @@ test("SSR_CONCURRENCY must be at least 1 — zero would serve nothing at all", (
 });
 ```
 
-- [ ] **Step 2: Write `services/storefront/src/routes.test.ts`**
+- [x] **Step 2: Write `services/storefront/src/routes.test.ts`**
 
 ```ts
 import { test } from "node:test";
@@ -6261,12 +6261,12 @@ test("SSR_CONCURRENCY=1 serialises rendering instead of dropping requests", asyn
 });
 ```
 
-- [ ] **Step 3: Run the tests to verify they fail**
+- [x] **Step 3: Run the tests to verify they fail**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm test`
 Expected: FAIL — `Cannot find module './config.js'` and `'./routes.js'`.
 
-- [ ] **Step 4: Write `services/storefront/src/config.ts`**
+- [x] **Step 4: Write `services/storefront/src/config.ts`**
 
 ```ts
 import { loadCommonConfig, optInt, optStr, requireUrl, type CommonConfig, type EnvSource } from "@sample-app/platform";
@@ -6296,7 +6296,7 @@ export function loadConfig(env: EnvSource): StorefrontConfig {
 }
 ```
 
-- [ ] **Step 5: Write `services/storefront/src/routes.ts`**
+- [x] **Step 5: Write `services/storefront/src/routes.ts`**
 
 ```ts
 import type { ChainStatus, OrderV1, ServiceStats } from "@sample-app/contracts";
@@ -6438,7 +6438,7 @@ export function createRoutes(deps: RouteDeps): Route[] {
 }
 ```
 
-- [ ] **Step 6: Write `services/storefront/src/index.ts`**
+- [x] **Step 6: Write `services/storefront/src/index.ts`**
 
 ```ts
 import {
@@ -6514,7 +6514,7 @@ installShutdown({
 server.listen(config.port, () => logger.info("listening", { port: config.port }));
 ```
 
-- [ ] **Step 7: Write `services/storefront/Dockerfile`**
+- [x] **Step 7: Write `services/storefront/Dockerfile`**
 
 ```dockerfile
 # Build context is the repository root — packages/ is shared by every service.
@@ -6566,7 +6566,7 @@ EXPOSE 3000
 CMD ["node", "services/storefront/dist/index.js"]
 ```
 
-- [ ] **Step 8: Run the tests and build the image**
+- [x] **Step 8: Run the tests and build the image**
 
 ```bash
 export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH
@@ -6579,7 +6579,7 @@ docker build -f services/storefront/Dockerfile \
 
 Expected: PASS — 5 config tests, 11 route tests; the image builds.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add -A
@@ -6603,7 +6603,7 @@ The generator drives **storefront**, not the gateway, so simulated traffic trave
 chain the way a browser does. Rate-based symptoms do not exist at zero requests per second, so
 this is a prerequisite for most of the fault catalog, not an extra.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `services/storefront/src/loadgen.test.ts`:
 
@@ -6694,12 +6694,12 @@ test("a 5xx from the storefront counts as an error without throwing", async () =
 });
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm test`
 Expected: FAIL — `Cannot find module './loadgen.js'`.
 
-- [ ] **Step 3: Write `services/storefront/src/loadgen.ts`**
+- [x] **Step 3: Write `services/storefront/src/loadgen.ts`**
 
 ```ts
 import { CATALOG } from "@sample-app/contracts";
@@ -6830,7 +6830,7 @@ if (process.argv[1]?.includes("loadgen")) {
 }
 ```
 
-- [ ] **Step 4: Add `optNumber` to `packages/platform/src/config.ts`**
+- [x] **Step 4: Add `optNumber` to `packages/platform/src/config.ts`**
 
 `optInt` (Task 2) rejects a fractional value, and `LOADGEN_CHECKOUT_RATIO` is one. Add
 beside it, and export it from the platform barrel:
@@ -6858,12 +6858,12 @@ test("optNumber accepts fractions and enforces its bounds", () => {
 });
 ```
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm run build:libs && npm test`
 Expected: PASS — 7 loadgen tests plus the new `optNumber` test.
 
-- [ ] **Step 6: Replace `docker-compose.yml` with the full stack**
+- [x] **Step 6: Replace `docker-compose.yml` with the full stack**
 
 ```yaml
 # Local stack. Mirrors the deployment contract: one migration pass, then four services.
@@ -6956,7 +6956,7 @@ services:
       - checkout-gateway
 ```
 
-- [ ] **Step 7: Drive the whole chain end to end**
+- [x] **Step 7: Drive the whole chain end to end**
 
 ```bash
 export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH
@@ -6984,7 +6984,7 @@ docker compose start settlement-worker
 Expected: `/status` marks the worker unreachable while checkout keeps succeeding, and the
 queue drains once the worker is back — the settlement-backlog symptom, reproduced locally.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add -A
@@ -7008,7 +7008,7 @@ This repo owns the rule definitions because the rules query the metric names in 
 renaming a metric must break its rule in the same commit. Wiring them into the cluster is the
 operator's job; this repo deploys nothing.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `docs/alerting/rules.test.ts` — cheap insurance against a rename that silently kills a rule.
 It parses only what it needs, so no YAML dependency is added.
@@ -7076,12 +7076,12 @@ two globs are unchanged from Task 1:
 "test": "npm run build:libs && node --import tsx --test \"packages/**/src/**/*.test.ts\" \"services/**/src/**/*.test.ts\" \"docs/**/*.test.ts\""
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm test`
 Expected: FAIL — `ENOENT: no such file or directory ... sample-app-rules.yaml`.
 
-- [ ] **Step 3: Write `docs/alerting/sample-app-rules.yaml`**
+- [x] **Step 3: Write `docs/alerting/sample-app-rules.yaml`**
 
 ```yaml
 # Alert rule definitions for the sample app.
@@ -7189,12 +7189,12 @@ groups:
             may be healthy — a Service selector that matches nothing looks exactly like this.
 ```
 
-- [ ] **Step 4: Run the rule test**
+- [x] **Step 4: Run the rule test**
 
 Run: `export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH && npm test`
 Expected: PASS — 5 rule tests.
 
-- [ ] **Step 5: Write `docs/DEPLOYMENT_CONTRACT.md`**
+- [x] **Step 5: Write `docs/DEPLOYMENT_CONTRACT.md`**
 
 ````markdown
 # Deployment contract
@@ -7374,7 +7374,7 @@ injected with `kubectl` on a Flux-managed workload is reverted at the next recon
 itself the GitOps-drift scenario, and its correct remediation is `flux_reconcile`, not a PR.
 ````
 
-- [ ] **Step 6: Write `README.md`**
+- [x] **Step 6: Write `README.md`**
 
 ````markdown
 # devops-sample-app
@@ -7455,7 +7455,7 @@ Alertmanager webhook, so faults that page (`DB_POOL_MAX`, `DOWNSTREAM_TIMEOUT_MS
 are only reachable by mentioning them in Slack.
 ````
 
-- [ ] **Step 7: Write `CLAUDE.md`**
+- [x] **Step 7: Write `CLAUDE.md`**
 
 ````markdown
 # devops-sample-app
@@ -7504,7 +7504,7 @@ in production-plausible ways so an agent investigation has something real to fin
 - Don't commit or push unless asked.
 ````
 
-- [ ] **Step 8: Write `MEMORY_BANK.md`**
+- [x] **Step 8: Write `MEMORY_BANK.md`**
 
 ````markdown
 # MEMORY_BANK — devops-sample-app
@@ -7602,7 +7602,7 @@ produces a 5xx burst — a fault whose cause is a deploy that "looked fine".
   traffic traverses the whole chain the way a browser would.
 ````
 
-- [ ] **Step 9: Full verification**
+- [x] **Step 9: Full verification**
 
 ```bash
 export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH
@@ -7616,7 +7616,7 @@ TARGET_URL=http://localhost:8080 LOADGEN_RPS=10 LOADGEN_DURATION_SECONDS=30 npm 
 Expected: every test passes with none skipped, `tsc` is clean across all workspaces, the stack
 comes up, and the loadgen summary reports zero errors.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add -A

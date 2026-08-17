@@ -1,0 +1,97 @@
+# Alert rule definitions for the sample app.
+#
+# Format: a fragment of serverFiles.alerting_rules.yml.groups for the community `prometheus`
+# chart. The cluster does NOT run the Prometheus Operator, so PrometheusRule CRDs do not apply.
+# Merge this into apps/base/systems/prometheus/release.yaml — see DEPLOYMENT_CONTRACT.md §6.
+#
+# Every rule is symptom-level. A rule named SampleAppDbPoolExhausted would state the answer in
+# the alert: alertmanager_get_alerts is the agent's unfiltered Blast Radius call, so a
+# cause-level rule hands it the diagnosis in tool call #1. Cause signals stay as metrics the
+# agent has to go and find.
+#
+# `for: 1m` on the app rules is a deliberate divergence from production parity (2-5m), made to
+# keep the evaluation cycle short. It is not an oversight.
+#
+# Assumptions, both stated in DEPLOYMENT_CONTRACT.md so scrape config and expressions agree:
+#   - the scrape job is labelled job="sample-app"
+#   - the workloads live in a namespace matching sample-app.*
+groups:
+  - name: sample-app
+    rules:
+      - alert: SampleAppHighErrorRate
+        expr: |
+          sum by (namespace, service) (rate(http_server_requests_total{job="sample-app",status=~"5.."}[5m]))
+            /
+          sum by (namespace, service) (rate(http_server_requests_total{job="sample-app"}[5m]))
+            > 0.05
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.service }} is failing more than 5% of requests"
+          description: >-
+            {{ $labels.service }} in {{ $labels.namespace }} has returned 5xx for
+            {{ $value | humanizePercentage }} of requests over the last 5 minutes.
+
+      - alert: SampleAppHighLatency
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum by (namespace, service, le) (rate(http_server_request_duration_seconds_bucket{job="sample-app"}[5m]))
+          ) > 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.service }} p99 latency is above 1s"
+          description: >-
+            The 99th percentile request duration for {{ $labels.service }} in
+            {{ $labels.namespace }} is {{ $value | humanizeDuration }}.
+
+      - alert: SampleAppSettlementBacklog
+        expr: max by (namespace, queue) (queue_oldest_job_age_seconds{job="sample-app"}) > 300
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The {{ $labels.queue }} queue is not draining"
+          description: >-
+            The oldest unprocessed job in {{ $labels.queue }} ({{ $labels.namespace }}) is
+            {{ $value | humanizeDuration }} old. Orders are being accepted but not settled.
+
+      - alert: SampleAppTargetDown
+        expr: up{job="sample-app"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "A sample-app target has stopped responding to scrapes"
+          description: >-
+            Prometheus cannot scrape {{ $labels.instance }} ({{ $labels.namespace }}).
+            The process is gone or unreachable without necessarily CrashLooping.
+
+      - alert: SampleAppNotReady
+        expr: |
+          kube_deployment_spec_replicas{namespace=~"sample-app.*"}
+            - on (namespace, deployment) kube_deployment_status_replicas_ready{namespace=~"sample-app.*"}
+            > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.deployment }} has replicas that never became ready"
+          description: >-
+            {{ $value }} replica(s) of {{ $labels.deployment }} in {{ $labels.namespace }} are
+            not ready. Pod phase stays Running in this state, so no phase-based rule sees it.
+
+      - alert: SampleAppNoEndpoints
+        expr: |
+          sum by (namespace, endpoint) (kube_endpoint_address{namespace=~"sample-app.*",ready="true"}) == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.endpoint }} has no ready endpoints"
+          description: >-
+            {{ $labels.endpoint }} in {{ $labels.namespace }} is serving no traffic. Every pod
+            may be healthy — a Service selector that matches nothing looks exactly like this.

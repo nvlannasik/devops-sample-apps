@@ -1,56 +1,75 @@
-import * as http from "node:http";
+import type { Server } from "node:http";
 import type { Logger } from "./logger.js";
 
-export type ShutdownHook = () => Promise<void>;
+export interface ShutdownTask {
+  name: string;
+  run: () => Promise<void>;
+}
+
+export interface ShutdownOptions {
+  logger: Logger;
+  timeoutMs: number;
+  server?: Server;
+  tasks?: ShutdownTask[];
+  exit?: (code: number) => void;
+  signals?: NodeJS.Signals[];
+}
 
 /**
- * Registers SIGTERM / SIGINT handlers.
- *
- * On signal:
- *  1. Stop accepting new connections (server.close).
- *  2. Wait up to `gracefulShutdownMs` for in-flight requests to drain.
- *  3. Run all registered shutdown hooks (close DB pool, stop OTel, etc.).
- *  4. exit(0).
- *
- * With GRACEFUL_SHUTDOWN_MS=0 step 2 is skipped — connections are cut
- * immediately, producing 5xx on every rolling deploy (the intended fault).
+ * On SIGTERM: stop accepting connections, drain in flight up to timeoutMs, run the
+ * teardown tasks, exit 0. With the default a rollout produces zero 5xx; with
+ * GRACEFUL_SHUTDOWN_MS=0 every deploy produces a 5xx burst.
  */
-export function registerShutdown(opts: {
-  server: http.Server;
-  gracefulShutdownMs: number;
-  hooks?: ShutdownHook[];
-  logger: Logger;
-}): void {
-  const { server, gracefulShutdownMs, hooks = [], logger } = opts;
+export function installShutdown(opts: ShutdownOptions): () => Promise<void> {
+  let started: Promise<void> | null = null;
 
-  let shuttingDown = false;
-
-  const shutdown = async (signal: string) => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    logger.info("shutdown signal received", { signal, gracefulShutdownMs });
-
-    // Stop accepting new connections
-    server.close();
-
-    if (gracefulShutdownMs > 0) {
-      await new Promise<void>((resolve) =>
-        setTimeout(resolve, gracefulShutdownMs),
-      );
-    }
-
-    for (const hook of hooks) {
+  const run = async (): Promise<void> => {
+    opts.logger.info("shutdown started", { timeout_ms: opts.timeoutMs });
+    if (opts.server) await closeServer(opts.server, opts.timeoutMs, opts.logger);
+    for (const task of opts.tasks ?? []) {
       try {
-        await hook();
+        await task.run();
       } catch (err) {
-        logger.error("shutdown hook failed", { err });
+        opts.logger.error(`shutdown task failed: ${task.name}`, { err });
       }
     }
-
-    logger.info("shutdown complete");
-    process.exit(0);
+    opts.logger.info("shutdown complete");
+    (opts.exit ?? ((code: number) => process.exit(code)))(0);
   };
 
-  process.once("SIGTERM", () => void shutdown("SIGTERM"));
-  process.once("SIGINT", () => void shutdown("SIGINT"));
+  const shutdown = (): Promise<void> => {
+    started ??= run();
+    return started;
+  };
+
+  for (const signal of opts.signals ?? (["SIGTERM", "SIGINT"] as NodeJS.Signals[])) {
+    process.on(signal, () => void shutdown());
+  }
+
+  return shutdown;
 }
+
+function closeServer(server: Server, timeoutMs: number, logger: Logger): Promise<void> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      logger.warn("drain timeout reached, closing open connections", { timeout_ms: timeoutMs });
+      server.closeAllConnections();
+      finish();
+    }, Math.max(0, timeoutMs));
+
+    server.close(() => finish());
+    // Keep-alive sockets hold the server open until their idle timeout; without this the
+    // drain always runs the full timeout even when nothing is actually in flight.
+    server.closeIdleConnections();
+  });
+}
+
+// Backward compat alias
+export { installShutdown as registerShutdown };
