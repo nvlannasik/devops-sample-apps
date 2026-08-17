@@ -1,0 +1,19 @@
+{
+  "name": "@sample-app/settlement-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "node --import tsx --watch src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@sample-app/contracts": "*",
+    "@sample-app/platform": "*",
+    "pg": "8.23.0"
+  },
+  "devDependencies": {
+    "@types/pg": "8.21.0"
+  }
+}
