@@ -40,7 +40,10 @@ test("createOrderWithJob writes the order and its settlement job in one transact
   const row = await repo.createOrderWithJob(input);
   assert.equal(row.id, input.id);
   assert.equal(row.status, "placed");
-  assert.equal(Number(row.amount_cents), 2598);
+  // strictEqual, not Number(row.amount_cents): bigint arrives from pg as a string, and
+  // checkout-gateway's assertOrderV1 requires a number. A coercing assertion passes on the
+  // string and lets a 502 on every checkout through.
+  assert.strictEqual(row.amount_cents, 2598);
   assert.deepEqual(row.items, input.items);
 
   const jobs = await pool.query("SELECT order_id, attempts, traceparent, locked_at FROM settlement_jobs WHERE order_id = $1", [input.id]);
