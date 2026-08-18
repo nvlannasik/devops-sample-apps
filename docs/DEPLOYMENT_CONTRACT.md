@@ -51,6 +51,24 @@ boot against an un-migrated schema. Set `MIGRATION_REQUIRED=false` to bypass.
 Every variable has a documented default. The variables marked **fault knob** are the ones the
 `devops-ai-agent` incident catalog exercises.
 
+### Common to every service
+
+Read by `loadCommonConfig` in `@sample-app/platform`, so all four services accept all of these.
+
+| Variable | Default | Fault knob |
+|---|---|---|
+| `PORT` | `3000` | — |
+| `NODE_ENV` | `production` | — |
+| `LOG_LEVEL` | `info` (`debug\|info\|warn\|error`) | — |
+| `SERVICE_VERSION` | `dev` | — set to the git SHA; labels every metric and log line |
+| `DEPLOYMENT_ENV` | `dev` | — |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | _unset_ (tracing off) | — see §7 |
+| `GRACEFUL_SHUTDOWN_MS` | `10000` | ✓ raise above `terminationGracePeriodSeconds` to make the kubelet SIGKILL mid-drain |
+
+`GRACEFUL_SHUTDOWN_MS` is how long a pod keeps serving after SIGTERM. Keep
+`terminationGracePeriodSeconds` above it, or the kubelet kills the process while it is still
+draining and in-flight requests die as connection resets with no error in any log.
+
 ### storefront
 
 | Variable | Default | Fault knob |
@@ -127,6 +145,13 @@ env:
   LOADGEN_RPS: "50"
   LOADGEN_DURATION_SECONDS: "0"   # 0 = run until killed
 ```
+
+| Variable | Default |
+|---|---|
+| `TARGET_URL` | _required_ |
+| `LOADGEN_RPS` | `5` |
+| `LOADGEN_DURATION_SECONDS` | `0` (run until killed) |
+| `LOADGEN_CHECKOUT_RATIO` | `0.3` — share of requests that check out; the rest browse |
 
 ---
 

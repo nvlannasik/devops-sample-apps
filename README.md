@@ -79,5 +79,8 @@ TARGET_URL=http://localhost:8080 LOADGEN_RPS=20 npm run loadgen
 
 ## Docs
 
-- [`docs/DEPLOYMENT_CONTRACT.md`](docs/DEPLOYMENT_CONTRACT.md) — operator handover
+- [`docs/DEPLOYMENT_CONTRACT.md`](docs/DEPLOYMENT_CONTRACT.md) — operator handover, and
+  [§3](docs/DEPLOYMENT_CONTRACT.md#3-environment-variables-and-fault-knobs) is the single env
+  var reference: common vars first, then one table per service. Services carry no README of
+  their own — two copies of an env table drift.
 - [`docs/alerting/sample-app-rules.yaml`](docs/alerting/sample-app-rules.yaml) — Prometheus alert rules
