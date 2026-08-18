@@ -1,5 +1,5 @@
 import pg from "pg";
-import type { WorkerConfig } from "./config.js";
+import type { WorkerConfig } from "../config.js";
 
 // Same parsers as orders-api: timestamps arrive as ISO strings, never Date objects.
 pg.types.setTypeParser(1184, (value: string) => new Date(value).toISOString());

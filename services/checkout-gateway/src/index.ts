@@ -1,7 +1,6 @@
 import type { OrderV1 } from "@sample-app/contracts";
 import {
-  bindPoolMetrics as _unused,
-  createAppServer,
+  createApp,
   createHttpClient,
   createLogger,
   createMetrics,
@@ -9,7 +8,7 @@ import {
   listen,
   loadOrExit,
   redactConfig,
-  registerShutdown,
+  installShutdown,
   RollingStats,
   traceContext,
 } from "@sample-app/platform";
@@ -40,20 +39,21 @@ const cache = createCache<OrderV1>({
 
 // Readiness checks the downstream (spec §8): a gateway that cannot reach orders-api serves
 // nothing useful. It probes /healthz — orders-api's own readiness must not chain into ours.
-const readiness = async (): Promise<{ ok: boolean; reason?: string }> => {
+const readiness = async (): Promise<{ ok: boolean; detail?: string }> => {
   try {
     await client.getJson("orders-api", `${config.ordersApiUrl}/healthz`, { timeoutMs: 1000 });
     return { ok: true };
   } catch (err) {
-    return { ok: false, reason: `orders-api unreachable: ${err instanceof Error ? err.message : String(err)}` };
+    return { ok: false, detail: `orders-api unreachable: ${err instanceof Error ? err.message : String(err)}` };
   }
 };
 
-const server = createAppServer({
-  port: config.port,
+const server = createApp({
   service: SERVICE,
+  config,
   metrics,
   logger,
+  stats,
   routes: createRoutes({
     client,
     logger,
@@ -63,14 +63,14 @@ const server = createAppServer({
     ordersApiUrl: config.ordersApiUrl,
     workerUrl: config.workerUrl,
   }),
-  readyz: readiness,
+  readiness,
 });
 
-registerShutdown({
+installShutdown({
   server,
-  gracefulShutdownMs: config.gracefulShutdownMs,
+  timeoutMs: config.gracefulShutdownMs,
   logger,
-  hooks: tracing ? [() => tracing.shutdown()] : [],
+  tasks: tracing ? [{ name: "tracing", run: () => tracing.shutdown() }] : [],
 });
 
 await listen(server, config.port, logger);

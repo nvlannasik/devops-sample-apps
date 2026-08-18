@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";
-import { createAppServer, createLogger, createMetrics, RollingStats, DownstreamError, type HttpClient } from "@sample-app/platform";
+import { createApp, createLogger, createMetrics, loadCommonConfig, RollingStats, DownstreamError, type HttpClient } from "@sample-app/platform";
 import { createCache } from "./cache.js";
 import { assertOrderV1, createRoutes } from "./routes.js";
 
@@ -38,11 +38,13 @@ async function withApp<T>(
   const logger = createLogger({ service: "checkout-gateway", version: "test", level: "error", write: () => {} });
   const metrics = createMetrics({ service: "checkout-gateway", version: "test", commit: "test" });
   const stats = new RollingStats();
-  const server = createAppServer({
-    port: 0,
+  // createApp, the same factory index.ts boots.
+  const server = createApp({
     service: "checkout-gateway",
+    config: loadCommonConfig({}),
     metrics,
     logger,
+    stats,
     routes: createRoutes({
       client,
       logger,
@@ -52,7 +54,7 @@ async function withApp<T>(
       ordersApiUrl: "http://orders-api:3000",
       workerUrl: "http://settlement-worker:3001",
     }),
-    readyz: async () => ({ ok: true }),
+    readiness: async () => ({ ok: true }),
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   const { port } = server.address() as AddressInfo;

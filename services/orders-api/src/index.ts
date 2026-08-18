@@ -1,11 +1,11 @@
 import {
   bindPoolMetrics,
-  createAppServer,
+  createApp,
   createLogger,
   createMetrics,
   initTracing,
   listen,
-  registerShutdown,
+  installShutdown,
   loadOrExit,
   redactConfig,
   RollingStats,
@@ -53,37 +53,38 @@ if (config.migrationRequired) {
 
 const stats = new RollingStats();
 
-const readiness = async (): Promise<{ ok: boolean; reason?: string }> => {
+const readiness = async (): Promise<{ ok: boolean; detail?: string }> => {
   if (pool.waitingCount > 0 && pool.idleCount === 0) {
-    return { ok: false, reason: `db pool exhausted: ${pool.waitingCount} waiting` };
+    return { ok: false, detail: `db pool exhausted: ${pool.waitingCount} waiting` };
   }
   try {
     await repo.ping();
     return { ok: true };
   } catch (err) {
-    return { ok: false, reason: `db unreachable: ${err instanceof Error ? err.message : String(err)}` };
+    return { ok: false, detail: `db unreachable: ${err instanceof Error ? err.message : String(err)}` };
   }
 };
 
-const server = createAppServer({
-  port: config.port,
+const server = createApp({
   service: SERVICE,
-  metrics,
+  config,
   logger,
+  metrics,
+  stats,
   routes: createRoutes({ repo, logger, orderResponseVersion: config.orderResponseVersion }),
-  readyz: readiness,
+  readiness,
   // LIVENESS_CHECKS_DB=true makes the kubelet restart healthy pods when the database
   // stalls — a cluster-wide restart storm whose symptom points nowhere near its cause.
-  healthz: config.livenessChecksDb ? () => true : undefined,
+  liveness: config.livenessChecksDb ? readiness : undefined,
 });
 
-registerShutdown({
+installShutdown({
   server,
-  gracefulShutdownMs: config.gracefulShutdownMs,
+  timeoutMs: config.gracefulShutdownMs,
   logger,
-  hooks: [
-    () => pool.end(),
-    ...(tracing ? [() => tracing.shutdown()] : []),
+  tasks: [
+    { name: "db pool", run: () => pool.end() },
+    ...(tracing ? [{ name: "tracing", run: () => tracing.shutdown() }] : []),
   ],
 });
 

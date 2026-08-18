@@ -1,13 +1,13 @@
 import {
   bindPoolMetrics,
-  createAppServer,
+  createApp,
   createLogger,
   createMetrics,
   initTracing,
   listen,
   loadOrExit,
   redactConfig,
-  registerShutdown,
+  installShutdown,
   RollingStats,
   sendJson,
   traceContext,
@@ -47,49 +47,42 @@ const loop = startLoop({
 
 const stats = new RollingStats();
 
-const readiness = async (): Promise<{ ok: boolean; reason?: string }> => {
+const readiness = async (): Promise<{ ok: boolean; detail?: string }> => {
   try {
     await queue.ping();
     return { ok: true };
   } catch (err) {
-    return { ok: false, reason: `db unreachable: ${err instanceof Error ? err.message : String(err)}` };
+    return { ok: false, detail: `db unreachable: ${err instanceof Error ? err.message : String(err)}` };
   }
 };
 
 // The worker serves no traffic; this is the admin port. /queue-stats is what chain-status
 // aggregates — the worker owns the queue, so it is the only service that reports on it.
-const server = createAppServer({
-  port: config.port,
+// /stats comes from createApp, like every other service.
+const server = createApp({
   service: SERVICE,
+  config,
   metrics,
   logger,
+  stats,
   routes: [
     {
       method: "GET",
       pattern: "/queue-stats",
       handler: async ({ res }) => sendJson(res, 200, await queue.stats()),
     },
-    {
-      method: "GET",
-      pattern: "/stats",
-      handler: async ({ res }) => sendJson(res, 200, {
-        service: SERVICE,
-        version: config.serviceVersion,
-        ...stats.snapshot(),
-      }),
-    },
   ],
-  readyz: readiness,
+  readiness,
 });
 
-registerShutdown({
+installShutdown({
   server,
-  gracefulShutdownMs: config.gracefulShutdownMs,
+  timeoutMs: config.gracefulShutdownMs,
   logger,
-  hooks: [
-    () => loop.stop(),
-    () => pool.end(),
-    ...(tracing ? [() => tracing.shutdown()] : []),
+  tasks: [
+    { name: "settle loop", run: () => loop.stop() },
+    { name: "db pool", run: () => pool.end() },
+    ...(tracing ? [{ name: "tracing", run: () => tracing.shutdown() }] : []),
   ],
 });
 

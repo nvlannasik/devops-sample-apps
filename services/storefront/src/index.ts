@@ -1,5 +1,5 @@
 import {
-  createAppServer,
+  createApp,
   createHttpClient,
   createLogger,
   createMetrics,
@@ -8,7 +8,7 @@ import {
   listen,
   loadOrExit,
   redactConfig,
-  registerShutdown,
+  installShutdown,
   RollingStats,
   traceContext,
 } from "@sample-app/platform";
@@ -33,11 +33,12 @@ const client = createHttpClient({ service: SERVICE, metrics, timeoutMs: config.g
 const stats = new RollingStats();
 const semaphore = createSemaphore(config.ssrConcurrency);
 
-const server = createAppServer({
-  port: config.port,
+const server = createApp({
   service: SERVICE,
+  config,
   metrics,
   logger,
+  stats,
   routes: createRoutes({
     client,
     logger,
@@ -47,21 +48,21 @@ const server = createAppServer({
     assetVersion: config.assetVersion,
     assetCacheSeconds: config.assetCacheSeconds,
   }),
-  readyz: async () => {
+  readiness: async () => {
     try {
       await client.getJson("checkout-gateway", `${config.gatewayUrl}/healthz`, { timeoutMs: 1000 });
       return { ok: true };
     } catch (err) {
-      return { ok: false, reason: `checkout-gateway unreachable: ${err instanceof Error ? err.message : String(err)}` };
+      return { ok: false, detail: `checkout-gateway unreachable: ${err instanceof Error ? err.message : String(err)}` };
     }
   },
 });
 
-registerShutdown({
+installShutdown({
   server,
-  gracefulShutdownMs: config.gracefulShutdownMs,
+  timeoutMs: config.gracefulShutdownMs,
   logger,
-  hooks: tracing ? [() => tracing.shutdown()] : [],
+  tasks: tracing ? [{ name: "tracing", run: () => tracing.shutdown() }] : [],
 });
 
 await listen(server, config.port, logger);

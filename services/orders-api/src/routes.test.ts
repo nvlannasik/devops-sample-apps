@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";
 import { randomUUID } from "node:crypto";
-import { createAppServer, createLogger, createMetrics, loadCommonConfig } from "@sample-app/platform";
+import { createApp, createLogger, createMetrics, loadCommonConfig, RollingStats } from "@sample-app/platform";
 import type { OrderRow } from "@sample-app/contracts";
 import { createRoutes } from "./routes.js";
 
@@ -37,13 +37,16 @@ async function withApp<T>(
   const logger = createLogger({ service: "orders-api", version: "test", level: "error", write: () => {} });
   const metrics = createMetrics({ service: "orders-api", version: "test", commit: "test" });
   const config = loadCommonConfig({});
-  const server = createAppServer({
-    port: 0,
+  // createApp, the same factory index.ts boots — a test server with different built-ins
+  // proves nothing about what actually ships.
+  const server = createApp({
     service: "orders-api",
+    config,
     metrics,
     logger,
+    stats: new RollingStats(),
     routes: createRoutes({ repo, logger, orderResponseVersion: version }),
-    readyz: async () => ({ ok: true }),
+    readiness: async () => ({ ok: true }),
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   const { port } = server.address() as AddressInfo;

@@ -42,8 +42,9 @@ docs/
 
 ## Key platform APIs
 
-- `createApp(deps)` — full HTTP server with /healthz, /readyz, /metrics, /stats, route metrics
-- `createAppServer(opts)` — lighter server for tests (no stats/rolling window)
+- `createApp(deps)` — the ONLY server factory. /healthz, /readyz, /metrics, /stats, route
+  metrics. Probe paths are excluded from `http_server_*`. Tests boot it too: a test-only
+  server variant is how `/stats`, probe exclusion and the liveness knob all silently broke.
 - `installShutdown(opts)` — SIGTERM handler, returns callable for tests
 - `createHttpClient(deps)` — instrumented fetch with peer-labeled metrics
 - `createSemaphore(limit)` — bounded concurrency

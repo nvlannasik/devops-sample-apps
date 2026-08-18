@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";
-import { createAppServer, createLogger, createMetrics, createSemaphore, DownstreamError, type HttpClient } from "@sample-app/platform";
+import { createApp, createLogger, createMetrics, createSemaphore, loadCommonConfig, RollingStats, DownstreamError, type HttpClient } from "@sample-app/platform";
 import { createRoutes, parseForm } from "./routes.js";
 
 const order = {
@@ -42,11 +42,13 @@ function stubClient(handlers: { get?: (url: string) => unknown; post?: (url: str
 async function withApp<T>(client: HttpClient, fn: (base: string) => Promise<T>, concurrency = 32): Promise<T> {
   const logger = createLogger({ service: "storefront", version: "test", level: "error", write: () => {} });
   const metrics = createMetrics({ service: "storefront", version: "test", commit: "test" });
-  const server = createAppServer({
-    port: 0,
+  // createApp, the same factory index.ts boots.
+  const server = createApp({
     service: "storefront",
+    config: loadCommonConfig({}),
     metrics,
     logger,
+    stats: new RollingStats(),
     routes: createRoutes({
       client,
       logger,
@@ -56,7 +58,7 @@ async function withApp<T>(client: HttpClient, fn: (base: string) => Promise<T>, 
       assetVersion: "abc123",
       assetCacheSeconds: 3600,
     }),
-    readyz: async () => ({ ok: true }),
+    readiness: async () => ({ ok: true }),
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   const { port } = server.address() as AddressInfo;

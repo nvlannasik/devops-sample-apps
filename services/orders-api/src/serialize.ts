@@ -2,6 +2,7 @@ import type { OrderRow, OrderV1, OrderV2 } from "@sample-app/contracts";
 
 export function serializeOrder(row: OrderRow, version: 1): OrderV1;
 export function serializeOrder(row: OrderRow, version: 2): OrderV2;
+export function serializeOrder(row: OrderRow, version: 1 | 2): OrderV1 | OrderV2;
 export function serializeOrder(row: OrderRow, version: 1 | 2): OrderV1 | OrderV2 {
   if (version === 1) {
     return {

@@ -70,6 +70,3 @@ function closeServer(server: Server, timeoutMs: number, logger: Logger): Promise
     server.closeIdleConnections();
   });
 }
-
-// Backward compat alias
-export { installShutdown as registerShutdown };
