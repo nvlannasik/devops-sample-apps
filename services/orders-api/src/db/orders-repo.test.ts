@@ -15,10 +15,14 @@ let pool: pg.Pool;
 let repo: OrdersRepo;
 let metrics = createMetrics({ service: "orders-api", version: "test", commit: "test" });
 
+// Private schema — see the note in migrate.test.ts. Test files run in parallel against one
+// database, so a shared public schema makes this file's DROP a sibling file's flake.
+const SCHEMA = "test_orders_repo";
+
 before(async () => {
   if (!DB) return;
-  pool = new pg.Pool({ connectionString: DB });
-  await pool.query("DROP TABLE IF EXISTS settlement_jobs, orders, schema_migrations CASCADE");
+  pool = new pg.Pool({ connectionString: DB, options: `-c search_path=${SCHEMA}` });
+  await pool.query(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE; CREATE SCHEMA ${SCHEMA}`);
   await runMigrations(pool, quiet);
   repo = createOrdersRepo(pool, { metrics, service: "orders-api" });
 });

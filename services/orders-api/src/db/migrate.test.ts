@@ -7,6 +7,17 @@ import { pendingMigrations, migrationFiles, runMigrations, appliedVersions, asse
 const DB = process.env["TEST_DATABASE_URL"];
 const quiet = createLogger({ service: "orders-api", version: "test", level: "error", write: () => {} });
 
+// node:test runs test FILES in parallel against one TEST_DATABASE_URL. Every DB test file
+// owns a private schema so a DROP here cannot pull the tables out from under a sibling file
+// mid-run — and so `npm test` never touches the developer's own public-schema dev data.
+const SCHEMA = "test_migrate";
+
+async function freshPool(): Promise<pg.Pool> {
+  const pool = new pg.Pool({ connectionString: DB, options: `-c search_path=${SCHEMA}` });
+  await pool.query(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE; CREATE SCHEMA ${SCHEMA}`);
+  return pool;
+}
+
 test("pendingMigrations returns unapplied .sql files in lexical order", () => {
   const files = ["002_settlement_jobs.sql", "001_orders.sql", "README.md"];
   assert.deepEqual(pendingMigrations(files, new Set()), ["001_orders.sql", "002_settlement_jobs.sql"]);
@@ -22,9 +33,8 @@ test("migrationFiles finds the migrations shipped in db/migrations", () => {
 });
 
 test("runMigrations creates the schema and is idempotent", { skip: !DB }, async () => {
-  const pool = new pg.Pool({ connectionString: DB });
+  const pool = await freshPool();
   try {
-    await pool.query("DROP TABLE IF EXISTS settlement_jobs, orders, schema_migrations CASCADE");
     await runMigrations(pool, quiet);
     assert.deepEqual([...(await appliedVersions(pool))].sort(), migrationFiles());
 
@@ -34,7 +44,8 @@ test("runMigrations creates the schema and is idempotent", { skip: !DB }, async 
     assert.equal(after.rows[0].n, before.rows[0].n);
 
     const cols = await pool.query(
-      "SELECT column_name FROM information_schema.columns WHERE table_name = 'settlement_jobs'",
+      "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'settlement_jobs'",
+      [SCHEMA],
     );
     assert.ok(cols.rows.some((r: { column_name: string }) => r.column_name === "traceparent"));
   } finally {
@@ -43,7 +54,7 @@ test("runMigrations creates the schema and is idempotent", { skip: !DB }, async 
 });
 
 test("assertSchemaCurrent throws when a migration has not been applied", { skip: !DB }, async () => {
-  const pool = new pg.Pool({ connectionString: DB });
+  const pool = await freshPool();
   try {
     await runMigrations(pool, quiet);
     await pool.query("DELETE FROM schema_migrations WHERE version = $1", ["002_settlement_jobs.sql"]);

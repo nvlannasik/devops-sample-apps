@@ -17,7 +17,9 @@ npm test                    # build:libs + run all *.test.ts files (195 tests)
 npm run build               # compile everything including services
 ```
 
-Database-backed tests (20) skip when `TEST_DATABASE_URL` is unset. Set it to run them:
+Database-backed tests (20) skip when `TEST_DATABASE_URL` is unset. Set it to run them — each
+DB test file creates and drops its own Postgres schema, so they are safe to run in parallel
+against a shared database and never touch your dev tables:
 ```bash
 docker compose up -d postgres
 TEST_DATABASE_URL=postgres://sample:sample@127.0.0.1:5432/sample_app npm test

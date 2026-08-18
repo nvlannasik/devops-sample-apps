@@ -1,6 +1,9 @@
 import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { readFileSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { createMetrics } from "@sample-app/platform";
 import { createQueueRepo, type QueueRepo } from "./db/queue.js";
@@ -13,9 +16,21 @@ let pool: pg.Pool;
 let repo: QueueRepo;
 const metrics = createMetrics({ service: "settlement-worker", version: "test", commit: "test" });
 
+// Private schema — see the note in orders-api's migrate.test.ts. This file also builds its
+// own schema: it used to rely on an orders-api test file having migrated first, which made it
+// pass or fail on test-file ordering.
+const SCHEMA = "test_worker_queue";
+
 before(async () => {
   if (!DB) return;
-  pool = new pg.Pool({ connectionString: DB });
+  pool = new pg.Pool({ connectionString: DB, options: `-c search_path=${SCHEMA}` });
+  await pool.query(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE; CREATE SCHEMA ${SCHEMA}`);
+  // db/migrations is repo-root; orders-api owns the runner, and this service does not depend
+  // on it, so replay the .sql directly.
+  const dir = join(dirname(fileURLToPath(import.meta.url)), "../../../db/migrations");
+  for (const file of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) {
+    await pool.query(readFileSync(join(dir, file), "utf8"));
+  }
   repo = createQueueRepo(pool, { metrics, service: "settlement-worker" });
 });
 
