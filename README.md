@@ -62,6 +62,15 @@ TARGET_URL=http://localhost:8080 LOADGEN_RPS=20 npm run loadgen
 
 ## Fault catalog
 
+The seven below are the quick-start subset. The authoritative catalog is
+[spec §10](docs/superpowers/specs/2026-08-16-sample-app-design.md#10-fault-catalog): twelve
+config-driven faults plus nine that need only a manifest change, each with the alert rule it is
+expected to trip. Every knob's default lives in
+[`DEPLOYMENT_CONTRACT.md` §3](docs/DEPLOYMENT_CONTRACT.md#3-environment-variables-and-fault-knobs).
+
+Note what is deliberately absent: no test asserts that a knob produces its fault. That needs a
+cluster, load, and a scrape interval — a unit test of it would assert our own mock (spec §12).
+
 | Fault | Env var | Value | Symptom |
 |---|---|---|---|
 | Gateway timeout | `GATEWAY_TIMEOUT_MS` | `50` | Storefront 504 storm, orders-api healthy |
