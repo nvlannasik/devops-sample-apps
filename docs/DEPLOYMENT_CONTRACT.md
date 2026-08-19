@@ -169,7 +169,8 @@ serverFiles:
 ```
 
 **Assumptions the rules make:**
-- Every scrape target has the label `job="sample-app"`.
+- Every scrape target has the label `job="sample-app"`. **§9 is what produces that label — without
+  it every app rule below is silently dead, evaluating an empty vector forever.**
 - The workloads live in a namespace that matches `sample-app.*`.
 
 **kube-state-metrics compatibility note** — `SampleAppNoEndpoints` ships the modern form:
@@ -198,3 +199,171 @@ Set `OTEL_EXPORTER_OTLP_ENDPOINT` on every pod to enable distributed tracing. Wi
 the SDK starts but no spans are exported. The `settlement-worker` links its span back to the
 checkout request's trace via the `traceparent` column — do not omit this endpoint if incident
 response depends on the async trace path.
+
+---
+
+## §8 Namespace, Postgres, and the workload shape
+
+### Namespace
+
+```yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sample-app
+```
+
+The name must match `sample-app.*` — `SampleAppNotReady` and `SampleAppNoEndpoints` select on it.
+
+### Postgres and the DATABASE_URL secret
+
+The Bitnami postgresql chart creates a database only when `auth.database` is set, **and only on
+first init of an empty PVC.** An already-initialised volume needs a one-time manual
+`CREATE DATABASE sample_app;`. App migrations create tables, never the database (§2).
+
+```yaml
+# HelmRelease values
+auth:
+  username: sample
+  database: sample_app
+  existingSecret: sample-app-postgres
+```
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: sample-app-db
+  namespace: sample-app
+stringData:
+  DATABASE_URL: postgres://sample:CHANGEME@sample-app-postgres:5432/sample_app
+```
+
+### Common to every Deployment
+
+```yaml
+      containers:
+        - name: app
+          image: ghcr.io/OWNER/sample-app-SERVICE:GIT_SHA
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: SERVICE_VERSION
+              value: GIT_SHA
+            - name: DEPLOYMENT_ENV
+              value: dev
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 50m, memory: 96Mi }
+            limits: { memory: 256Mi }
+```
+
+Annotate every pod template so §9 can find it:
+
+```yaml
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/path: /metrics
+    prometheus.io/port: "3000"      # "3001" for settlement-worker
+```
+
+`terminationGracePeriodSeconds` must stay above `GRACEFUL_SHUTDOWN_MS` (§3) — the default 30s
+clears the default 10s drain.
+
+`memory: 256Mi` is deliberate: it is what makes `SETTLEMENT_BATCH_SIZE=200000` reach the OOM
+killer in bounded time instead of swelling forever.
+
+| service | port | extra env | Service exposes |
+|---|---|---|---|
+| `storefront` | 3000 | `GATEWAY_URL=http://checkout-gateway:3000` | http 3000 — the only one users reach |
+| `checkout-gateway` | 3000 | `ORDERS_API_URL=http://orders-api:3000`, `WORKER_URL=http://settlement-worker:3001` | http 3000 |
+| `orders-api` | 3000 | `envFrom` the `sample-app-db` secret | http 3000 |
+| `settlement-worker` | 3001 | `envFrom` the `sample-app-db` secret, `PORT=3001` | **admin port only** — serves no user traffic |
+
+---
+
+## §9 Prometheus scrape job
+
+**Required, and easy to miss.** If the cluster's Prometheus has
+`kubernetes-service-endpoints: enabled: false`, pod annotations alone scrape nothing and every
+app-metric rule in §6 is dead — the alerts never fire and never error either.
+
+```yaml
+# serverFiles.prometheus.yml scrape_configs
+- job_name: sample-app
+  kubernetes_sd_configs:
+    - role: pod
+      namespaces:
+        names: [sample-app]
+  relabel_configs:
+    - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+      action: keep
+      regex: "true"
+    - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port]
+      target_label: __address__
+      regex: (.+)
+      replacement: $1
+      action: replace
+    - source_labels: [__meta_kubernetes_namespace]
+      target_label: namespace
+    - source_labels: [__meta_kubernetes_pod_label_app]
+      target_label: service
+```
+
+`job_name: sample-app` is what produces the `job="sample-app"` label every rule selects on, and
+the last two relabels produce `namespace` and `service` — the labels every rule groups by.
+
+Verify after rollout. An empty result means every app rule is dead:
+
+```sh
+curl -sG <prometheus>/api/v1/query --data-urlencode 'query=up{job="sample-app"}'
+```
+
+---
+
+## §10 Running a fault scenario in the cluster
+
+The fault catalog is spec §10. Nothing in the test suite asserts that a knob produces its fault
+— that needs load, a scrape interval, and a rule evaluation, so it belongs here, not in CI.
+
+**Prerequisite: traffic.** Error-rate and latency are rate-based; they do not exist at zero
+requests per second. Run the §5 generator as a Job before expecting any Class 1 alert.
+
+**Baseline before injecting anything** — a green baseline is what makes the fault attributable:
+
+```sh
+curl -sG <prometheus>/api/v1/query --data-urlencode 'query=up{job="sample-app"}'                      # expect 4 (5 with a worker admin target)
+curl -sG <prometheus>/api/v1/query --data-urlencode 'query=ALERTS{alertstate="firing",alertname=~"SampleApp.*"}'   # expect empty
+kubectl -n sample-app exec deploy/storefront -- wget -qO- localhost:3000/status                       # every hop ok
+```
+
+**Inject, observe, revert:**
+
+```sh
+kubectl -n sample-app set env deploy/orders-api DB_POOL_MAX=1     # or edit the manifest — see the Flux note
+# wait: rule window (5m rate) + `for:` (1m) + scrape interval. First firing lands 6-7 minutes in.
+curl -sG <prometheus>/api/v1/query --data-urlencode 'query=ALERTS{alertstate="firing",alertname=~"SampleApp.*"}'
+kubectl -n sample-app set env deploy/orders-api DB_POOL_MAX-      # revert
+```
+
+Expected alert per knob is the `trigger rule` column of spec §10. Three Class 1 knobs
+(`SETTLEMENT_BATCH_SIZE`, `MIGRATION_REQUIRED`, `LIVENESS_CHECKS_DB`) trip the cluster's
+existing `Kubernetes*` rules rather than a `SampleApp*` one, and two (`VERBOSE_PAYLOAD`,
+`ASSET_VERSION`) trip nothing at all by design.
+
+**`ASSET_VERSION` is the one worth running deliberately.** Set it to a stale SHA: every metric
+stays green, every span succeeds, and the storefront is visibly broken in a browser. No alert
+fires, so it is reachable only through the agent's Slack-mention path. The correct answer is
+that no server-side fault is visible — an agent that invents a cause fails this scenario, and
+nothing else in the catalog tests that.
+
+**Flux ownership.** `kubectl set env` on a Flux-managed workload is reverted at the next
+reconcile (one-minute poll), which will silently end a scenario mid-run. Either pause the
+Kustomization for the duration, or inject through the manifest repo. That revert is itself the
+GitOps-drift scenario, whose correct remediation is `flux_reconcile`, not a PR.

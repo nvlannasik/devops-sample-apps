@@ -70,6 +70,9 @@ expected to trip. Every knob's default lives in
 
 Note what is deliberately absent: no test asserts that a knob produces its fault. That needs a
 cluster, load, and a scrape interval — a unit test of it would assert our own mock (spec §12).
+Running one for real is
+[`DEPLOYMENT_CONTRACT.md` §10](docs/DEPLOYMENT_CONTRACT.md#10-running-a-fault-scenario-in-the-cluster):
+baseline, inject, wait out the rule window, revert.
 
 | Fault | Env var | Value | Symptom |
 |---|---|---|---|
