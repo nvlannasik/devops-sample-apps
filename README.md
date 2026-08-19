@@ -96,3 +96,6 @@ baseline, inject, wait out the rule window, revert.
   var reference: common vars first, then one table per service. Services carry no README of
   their own — two copies of an env table drift.
 - [`docs/alerting/sample-app-rules.yaml`](docs/alerting/sample-app-rules.yaml) — Prometheus alert rules
+- [`docs/k8s/`](docs/k8s/) — reference manifests: the four Deployments and Services, the
+  migration and loadgen Jobs, and the Prometheus scrape job. Copy-and-edit material; this repo
+  deploys nothing.

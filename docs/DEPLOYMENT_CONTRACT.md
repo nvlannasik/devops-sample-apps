@@ -4,6 +4,10 @@ This document captures every decision an operator must agree to before this work
 and be observed correctly. It is the handover document from the development team to the
 platform team.
 
+Ready-to-copy manifests implementing everything below live in [`k8s/`](k8s/) —
+`sample-app.yaml` for the workloads and `prometheus-values.yaml` for the scrape job and rules.
+This document is the reasoning; those are the artifacts.
+
 ---
 
 ## §1 Images
@@ -305,11 +309,17 @@ app-metric rule in §6 is dead — the alerts never fire and never error either.
     - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
       action: keep
       regex: "true"
-    - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port]
-      target_label: __address__
-      regex: (.+)
-      replacement: $1
+    # Join the discovered pod IP with the annotated port. Setting __address__ from the port
+    # alone discards the IP and every target becomes unscrapeable.
+    - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
       action: replace
+      regex: ([^:]+)(?::\d+)?;(\d+)
+      replacement: $1:$2
+      target_label: __address__
+    - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+      action: replace
+      regex: (.+)
+      target_label: __metrics_path__
     - source_labels: [__meta_kubernetes_namespace]
       target_label: namespace
     - source_labels: [__meta_kubernetes_pod_label_app]
@@ -318,11 +328,18 @@ app-metric rule in §6 is dead — the alerts never fire and never error either.
 
 `job_name: sample-app` is what produces the `job="sample-app"` label every rule selects on, and
 the last two relabels produce `namespace` and `service` — the labels every rule groups by.
+`service` comes from the pod's `app` label, so renaming that label in the manifests silently
+unlabels every series and every rule stops matching.
 
-Verify after rollout. An empty result means every app rule is dead:
+Verify after rollout — check both, because they fail differently:
 
 ```sh
+# 5 targets: four services plus the worker's admin port. Empty means every app rule is dead.
 curl -sG <prometheus>/api/v1/query --data-urlencode 'query=up{job="sample-app"}'
+
+# Every series must carry a non-empty service label, or the rules' `by (namespace, service)`
+# collapses them into one meaningless group.
+curl -sG <prometheus>/api/v1/query --data-urlencode 'query=count by (service) (up{job="sample-app"})'
 ```
 
 ---

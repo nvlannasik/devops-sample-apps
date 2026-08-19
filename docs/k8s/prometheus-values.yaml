@@ -1,0 +1,137 @@
+# Helm values for the community `prometheus` chart (NOT the Prometheus Operator — this cluster
+# runs no PrometheusRule CRDs). Merge both blocks into your prometheus release's values.
+#
+# THIS REPO DEPLOYS NOTHING. Handover material; not reconciled from here.
+#
+# The two blocks are a pair. The scrape job produces the labels the rules select on:
+#   job="sample-app"   ← job_name below
+#   namespace, service ← the last two relabels
+# Applying the rules without the scrape job leaves every app rule evaluating an empty vector:
+# nothing fires and nothing errors, so a broken setup is indistinguishable from a healthy one.
+
+serverFiles:
+  prometheus.yml:
+    scrape_configs:
+      # ... your existing scrape_configs ...
+      - job_name: sample-app
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: [sample-app]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: "true"
+          # Join the discovered pod IP with the annotated port. Setting __address__ from the
+          # port alone discards the IP and every target becomes unscrapeable.
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            regex: (.+)
+            target_label: __metrics_path__
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          # The pod's `app` label becomes `service`. Every rule groups by (namespace, service);
+          # rename that label in the manifests and the rules stop distinguishing services.
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            target_label: service
+
+  # Identical to docs/alerting/sample-app-rules.yaml, which is the authoritative copy — it lives
+  # beside the metric names it queries so renaming a metric breaks its rule in the same commit.
+  # Every rule here is symptom-level. A rule named SampleAppDbPoolExhausted would state the
+  # answer in the alert; alertmanager_get_alerts is the agent's unfiltered first call, so a
+  # cause-level rule hands it the diagnosis in tool call #1.
+  #
+  # `for: 1m` on the app rules is a deliberate divergence from production parity (2-5m), made to
+  # keep the evaluation cycle short. It is not an oversight.
+  alerting_rules.yml:
+    groups:
+      # ... your existing groups ...
+      - name: sample-app
+        rules:
+          - alert: SampleAppHighErrorRate
+            expr: |
+              sum by (namespace, service) (rate(http_server_requests_total{job="sample-app",status=~"5.."}[5m]))
+                /
+              sum by (namespace, service) (rate(http_server_requests_total{job="sample-app"}[5m]))
+                > 0.05
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "{{ $labels.service }} is failing more than 5% of requests"
+              description: >-
+                {{ $labels.service }} in {{ $labels.namespace }} has returned 5xx for
+                {{ $value | humanizePercentage }} of requests over the last 5 minutes.
+
+          - alert: SampleAppHighLatency
+            expr: |
+              histogram_quantile(
+                0.99,
+                sum by (namespace, service, le) (rate(http_server_request_duration_seconds_bucket{job="sample-app"}[5m]))
+              ) > 1
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "{{ $labels.service }} p99 latency is above 1s"
+              description: >-
+                The 99th percentile request duration for {{ $labels.service }} in
+                {{ $labels.namespace }} is {{ $value | humanizeDuration }}.
+
+          - alert: SampleAppSettlementBacklog
+            expr: max by (namespace, queue) (queue_oldest_job_age_seconds{job="sample-app"}) > 300
+            for: 1m
+            labels:
+              severity: warning
+            annotations:
+              summary: "The {{ $labels.queue }} queue is not draining"
+              description: >-
+                The oldest unprocessed job in {{ $labels.queue }} ({{ $labels.namespace }}) is
+                {{ $value | humanizeDuration }} old. Orders are being accepted but not settled.
+
+          - alert: SampleAppTargetDown
+            expr: up{job="sample-app"} == 0
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "A sample-app target has stopped responding to scrapes"
+              description: >-
+                Prometheus cannot scrape {{ $labels.instance }} ({{ $labels.namespace }}).
+                The process is gone or unreachable without necessarily CrashLooping.
+
+          - alert: SampleAppNotReady
+            expr: |
+              kube_deployment_spec_replicas{namespace=~"sample-app.*"}
+                - on (namespace, deployment) kube_deployment_status_replicas_ready{namespace=~"sample-app.*"}
+                > 0
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ $labels.deployment }} has replicas that never became ready"
+              description: >-
+                {{ $value }} replica(s) of {{ $labels.deployment }} in {{ $labels.namespace }} are
+                not ready. Pod phase stays Running in this state, so no phase-based rule sees it.
+
+          # Reads kube-state-metrics, like SampleAppNotReady. Confirm it is deployed and scraped
+          # or both rules are dead:
+          #   query=kube_deployment_spec_replicas
+          # This is the modern form. On kube-state-metrics < 2.0 use instead:
+          #   expr: kube_endpoint_address_available{namespace=~"sample-app.*"} == 0
+          - alert: SampleAppNoEndpoints
+            expr: |
+              sum by (namespace, endpoint) (kube_endpoint_address{namespace=~"sample-app.*",ready="true"}) == 0
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Service {{ $labels.endpoint }} has no ready endpoints"
+              description: >-
+                {{ $labels.endpoint }} in {{ $labels.namespace }} is serving no traffic. Every pod
+                may be healthy — a Service selector that matches nothing looks exactly like this.

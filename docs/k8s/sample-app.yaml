@@ -1,0 +1,378 @@
+# Reference manifests for the four sample-app services.
+#
+# THIS REPO DEPLOYS NOTHING. This file is handover material: copy it into your manifest repo,
+# or apply it directly to a scratch cluster. It is not reconciled from here.
+#
+#   kubectl apply -f docs/k8s/sample-app.yaml
+#
+# Before applying, replace two placeholders throughout:
+#   ghcr.io/OWNER/  → your registry
+#   GIT_SHA         → the tag you built (`git rev-parse --short HEAD`)
+#
+# The alert rules and the Prometheus scrape job are NOT here — they are Helm values for the
+# community prometheus chart, not cluster objects. See DEPLOYMENT_CONTRACT.md §6 and §9, and
+# docs/alerting/sample-app-rules.yaml. Applying this file without doing that leaves every app
+# rule evaluating an empty vector: nothing fires and nothing errors.
+#
+# Two labels are load-bearing and must not be renamed:
+#   metadata.labels.app on the pod template → relabelled to `service` by the scrape job, which
+#                                             is what every alert rule groups by
+#   the namespace name                      → must match sample-app.*, selected by
+#                                             SampleAppNotReady and SampleAppNoEndpoints
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sample-app
+---
+# Replace CHANGEME. Points at whatever Postgres you run; the Bitnami chart's service name is
+# <release>-postgresql. The database must already exist — the chart creates it only when
+# auth.database is set AND only on first init of an empty PVC (DEPLOYMENT_CONTRACT.md §8).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: sample-app-db
+  namespace: sample-app
+stringData:
+  DATABASE_URL: postgres://sample:CHANGEME@sample-app-postgres:5432/sample_app
+---
+# Runs once per release, BEFORE the app rollout. orders-api and settlement-worker refuse to
+# boot against an un-migrated schema unless MIGRATION_REQUIRED=false.
+# Re-running is safe: the runner takes advisory lock 4927313, so concurrent Jobs serialise.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sample-app-migrate
+  namespace: sample-app
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: sample-app-migrate
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: ghcr.io/OWNER/sample-app-orders-api:GIT_SHA
+          command: ["node", "services/orders-api/dist/db/migrate-cli.js"]
+          envFrom:
+            - secretRef:
+                name: sample-app-db
+          resources:
+            requests: { cpu: 50m, memory: 96Mi }
+            limits: { memory: 256Mi }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: storefront
+  namespace: sample-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: storefront
+  template:
+    metadata:
+      labels:
+        app: storefront
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "3000"
+    spec:
+      # Above GRACEFUL_SHUTDOWN_MS (default 10s), or the kubelet SIGKILLs mid-drain and
+      # in-flight requests die as connection resets with nothing in any log.
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000          # the `node` user in node:24-alpine; the images do not set USER
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: app
+          image: ghcr.io/OWNER/sample-app-storefront:GIT_SHA
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: SERVICE_VERSION
+              value: GIT_SHA
+            - name: DEPLOYMENT_ENV
+              value: dev
+            - name: GATEWAY_URL
+              value: http://checkout-gateway:3000
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 50m, memory: 96Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: storefront
+  namespace: sample-app
+spec:
+  selector:
+    app: storefront
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout-gateway
+  namespace: sample-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: checkout-gateway
+  template:
+    metadata:
+      labels:
+        app: checkout-gateway
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "3000"
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: app
+          image: ghcr.io/OWNER/sample-app-checkout-gateway:GIT_SHA
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: SERVICE_VERSION
+              value: GIT_SHA
+            - name: DEPLOYMENT_ENV
+              value: dev
+            - name: ORDERS_API_URL
+              value: http://orders-api:3000
+            - name: WORKER_URL
+              value: http://settlement-worker:3001
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 50m, memory: 96Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: checkout-gateway
+  namespace: sample-app
+spec:
+  selector:
+    app: checkout-gateway
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders-api
+  namespace: sample-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: orders-api
+  template:
+    metadata:
+      labels:
+        app: orders-api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "3000"
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: app
+          image: ghcr.io/OWNER/sample-app-orders-api:GIT_SHA
+          ports:
+            - name: http
+              containerPort: 3000
+          envFrom:
+            - secretRef:
+                name: sample-app-db
+          env:
+            - name: SERVICE_VERSION
+              value: GIT_SHA
+            - name: DEPLOYMENT_ENV
+              value: dev
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 10
+          # Deliberately /healthz, not /readyz: /healthz ignores the database unless
+          # LIVENESS_CHECKS_DB=true. Pointing liveness at a dependency is the restart-storm
+          # fault (DEPLOYMENT_CONTRACT.md §3), not the default.
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 50m, memory: 96Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orders-api
+  namespace: sample-app
+spec:
+  selector:
+    app: orders-api
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: settlement-worker
+  namespace: sample-app
+spec:
+  # Single replica on purpose. The queue is SKIP LOCKED so more replicas are safe, but one
+  # makes queue_depth and queue_oldest_job_age_seconds attributable to a single process.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: settlement-worker
+  template:
+    metadata:
+      labels:
+        app: settlement-worker
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "3001"
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: app
+          image: ghcr.io/OWNER/sample-app-settlement-worker:GIT_SHA
+          ports:
+            - name: admin
+              containerPort: 3001
+          envFrom:
+            - secretRef:
+                name: sample-app-db
+          env:
+            - name: SERVICE_VERSION
+              value: GIT_SHA
+            - name: DEPLOYMENT_ENV
+              value: dev
+            - name: PORT
+              value: "3001"
+          readinessProbe:
+            httpGet: { path: /readyz, port: admin }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: admin }
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 50m, memory: 96Mi }
+            # 256Mi is deliberate: it is what makes SETTLEMENT_BATCH_SIZE=200000 reach the OOM
+            # killer in bounded time instead of swelling forever.
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+---
+# Admin port only — this service takes no user traffic. It exists so checkout-gateway can
+# reach /queue-stats for chain-status, and so Prometheus can scrape /metrics.
+apiVersion: v1
+kind: Service
+metadata:
+  name: settlement-worker
+  namespace: sample-app
+spec:
+  selector:
+    app: settlement-worker
+  ports:
+    - name: admin
+      port: 3001
+      targetPort: admin
+---
+# Traffic source. Rate-based rules (SampleAppHighErrorRate, SampleAppHighLatency) do not exist
+# at zero requests per second — this is a prerequisite for most scenarios, not an extra.
+# Runs until deleted. Raise LOADGEN_RPS to 20+ before attempting SampleAppHighLatency.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sample-app-loadgen
+  namespace: sample-app
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: sample-app-loadgen
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: loadgen
+          image: ghcr.io/OWNER/sample-app-storefront:GIT_SHA
+          command: ["node", "services/storefront/dist/loadgen.js"]
+          env:
+            - name: TARGET_URL
+              value: http://storefront.sample-app.svc.cluster.local:3000
+            - name: LOADGEN_RPS
+              value: "10"
+            - name: LOADGEN_DURATION_SECONDS
+              value: "0"     # 0 = run until the Job is deleted
+            - name: LOADGEN_CHECKOUT_RATIO
+              value: "0.3"   # keep above 0, or ORDER_RESPONSE_VERSION=2 has nothing to break
+          resources:
+            requests: { cpu: 50m, memory: 96Mi }
+            limits: { memory: 256Mi }
