@@ -357,6 +357,46 @@ Expected alert per knob is the `trigger rule` column of spec §10. Three Class 1
 existing `Kubernetes*` rules rather than a `SampleApp*` one, and two (`VERBOSE_PAYLOAD`,
 `ASSET_VERSION`) trip nothing at all by design.
 
+### One trigger per rule
+
+Six rules ship in `docs/alerting/sample-app-rules.yaml`. Each needs a different action — four
+are reachable by changing app config, two are not reachable that way at all.
+
+| rule | threshold | what to do | time to fire |
+|---|---|---|---|
+| `SampleAppHighErrorRate` | 5xx rate > 5% | `kubectl -n sample-app set env deploy/orders-api ORDER_RESPONSE_VERSION=2` | ~6 min |
+| `SampleAppHighLatency` | p99 > 1s | `kubectl -n sample-app set env deploy/storefront SSR_CONCURRENCY=1` **and raise `LOADGEN_RPS` to ≥20** | ~6 min |
+| `SampleAppSettlementBacklog` | oldest job > 300s | `kubectl -n sample-app set env deploy/settlement-worker SETTLEMENT_POLL_INTERVAL_MS=600000` | **~6 min minimum** |
+| `SampleAppTargetDown` | `up == 0` for 2m | `kubectl -n sample-app scale deploy/settlement-worker --replicas=0` | ~2-3 min |
+| `SampleAppNotReady` | ready < spec for 5m | patch the readiness probe to a path that does not exist, e.g. `/ready` | ~5-6 min |
+| `SampleAppNoEndpoints` | no ready endpoint for 2m | patch the Service selector to `app: sample-app-typo` | ~2-3 min |
+
+Notes that decide whether a run works:
+
+- **`SampleAppHighErrorRate`** — `ORDER_RESPONSE_VERSION=2` fires it on `checkout-gateway`, not
+  on `orders-api`: orders-api happily returns 200 in the new shape and the gateway 502s on
+  parse. That asymmetry is the scenario. Needs checkout traffic, so keep
+  `LOADGEN_CHECKOUT_RATIO` above 0. `DOWNSTREAM_TIMEOUT_MS=50` is the alternative trigger, and
+  gives a 504 instead of a 502.
+  A 4xx never counts — the gateway forwards upstream 4xx unchanged precisely so a bad cart
+  stays out of this rule.
+- **`SampleAppHighLatency`** — the threshold is p99 > **1s**, and the histogram's top buckets
+  are 1, 2.5, 5, 10. `SSR_CONCURRENCY=1` only crosses 1s if requests actually queue, which
+  needs real concurrent load; at 5 rps the storefront keeps up and nothing fires.
+  `DB_POOL_MAX=1` on orders-api works the same way and also needs the load.
+- **`SampleAppSettlementBacklog`** — the threshold is *oldest job age > 300s*, so nothing can
+  fire in under 5 minutes no matter how slow the worker is; the rule's `for: 1m` sits on top of
+  that. Raising the poll interval starves the queue but does not backdate the jobs. Scaling the
+  worker to 0 is the faster and more honest trigger — but note `queue_depth` and
+  `queue_oldest_job_age_seconds` are published *by the worker*, so at 0 replicas the gauges go
+  stale rather than climbing, and `SampleAppTargetDown` fires first. To exercise the backlog
+  rule specifically, keep one replica alive with a long poll interval and let it age past 300s.
+- **`SampleAppNotReady` and `SampleAppNoEndpoints` are not app-config faults.** No env var
+  reaches them — they read kube-state-metrics, and their whole point is that the app is fine
+  while the cluster serves nothing. Both need a manifest change (probe path, Service selector).
+  Confirm kube-state-metrics is deployed and scraped first, or both are dead rules:
+  `curl -sG <prometheus>/api/v1/query --data-urlencode 'query=kube_deployment_spec_replicas'`
+
 **`ASSET_VERSION` is the one worth running deliberately.** Set it to a stale SHA: every metric
 stays green, every span succeeds, and the storefront is visibly broken in a browser. No alert
 fires, so it is reachable only through the agent's Slack-mention path. The correct answer is
