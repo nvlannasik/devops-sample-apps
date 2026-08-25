@@ -1,15 +1,16 @@
 import {
   ConfigError,
   loadCommonConfig,
+  loadDbConfig,
   optBool,
   optInt,
-  requireStr,
   type CommonConfig,
+  type DbConfig,
   type EnvSource,
 } from "@sample-app/platform";
 
 export interface OrdersApiConfig extends CommonConfig {
-  databaseUrl: string;
+  db: DbConfig;
   dbPoolMax: number;
   dbStatementTimeoutMs: number;
   migrationRequired: boolean;
@@ -24,7 +25,7 @@ export function loadConfig(env: EnvSource): OrdersApiConfig {
   const common = loadCommonConfig(env);
   return {
     ...common,
-    databaseUrl: requireStr(env, "DATABASE_URL"),
+    db: loadDbConfig(env),
     dbPoolMax: optInt(env, "DB_POOL_MAX", 10, { min: 1 }),
     dbStatementTimeoutMs: optInt(env, "DB_STATEMENT_TIMEOUT_MS", 5000, { min: 0 }),
     migrationRequired: optBool(env, "MIGRATION_REQUIRED", true),

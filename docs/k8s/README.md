@@ -27,8 +27,8 @@ curl -sG <prometheus>/api/v1/query --data-urlencode 'query=up{job="sample-app"}'
 curl -sG <prometheus>/api/v1/query --data-urlencode 'query=count by (service) (up{job="sample-app"})'
 ```
 
-Edit the `DATABASE_URL` in `sample-app.yaml` before applying: it carries a `CHANGEME` password
-and assumes a Postgres service named `sample-app-postgres`. The database must already exist —
+Edit the `sample-app-db` Secret in `sample-app.yaml` before applying: `DB_PASSWORD` is
+`CHANGEME` and `DB_HOST` assumes a Postgres service named `sample-app-postgres`. The database must already exist —
 the Bitnami chart creates it only when `auth.database` is set and only on first init of an empty
 PVC. App migrations create tables, never the database.
 

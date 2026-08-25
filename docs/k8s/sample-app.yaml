@@ -28,13 +28,25 @@ metadata:
 # Replace CHANGEME. Points at whatever Postgres you run; the Bitnami chart's service name is
 # <release>-postgresql. The database must already exist — the chart creates it only when
 # auth.database is set AND only on first init of an empty PVC (DEPLOYMENT_CONTRACT.md §8).
+#
+# One Secret, consumed with envFrom by the migration Job, orders-api and settlement-worker.
+# Discrete keys rather than a URL: DB_PASSWORD can then be rotated (or sourced from an
+# ExternalSecret) on its own, without re-templating a connection string, and the app's boot log
+# redacts it by key name.
 apiVersion: v1
 kind: Secret
 metadata:
   name: sample-app-db
   namespace: sample-app
 stringData:
-  DATABASE_URL: postgres://sample:CHANGEME@sample-app-postgres:5432/sample_app
+  DB_HOST: sample-app-postgres
+  DB_PORT: "5432"
+  DB_USERNAME: sample
+  DB_PASSWORD: CHANGEME
+  DB_NAME: sample_app
+  # disable | require | verify-ca | verify-full. An unknown value fails at boot rather than
+  # falling back to an unencrypted connection.
+  DB_SSL_MODE: disable
 ---
 # Runs once per release, BEFORE the app rollout. orders-api and settlement-worker refuse to
 # boot against an un-migrated schema unless MIGRATION_REQUIRED=false.

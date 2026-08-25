@@ -13,7 +13,7 @@
 
 ```bash
 npm run build:libs          # compile @sample-app/contracts and @sample-app/platform
-npm test                    # build:libs + run all *.test.ts files (195 tests)
+npm test                    # build:libs + run all *.test.ts files (201 tests)
 npm run build               # compile everything including services
 ```
 
@@ -49,6 +49,9 @@ docs/
   server variant is how `/stats`, probe exclusion and the liveness knob all silently broke.
 - `installShutdown(opts)` — SIGTERM handler, returns callable for tests
 - `createHttpClient(deps)` — instrumented fetch with peer-labeled metrics
+- `loadDbConfig(env)` + `pgSsl(mode)` — the DB connection, read from discrete `DB_*` variables
+  (the same names devops-ai-agent uses). There is no `DATABASE_URL`; `TEST_DATABASE_URL` is
+  unrelated and stays a URL.
 - `createSemaphore(limit)` — bounded concurrency
 - `RollingStats` — in-process p99/error-rate over 60s window
 

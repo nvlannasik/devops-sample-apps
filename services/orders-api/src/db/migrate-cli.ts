@@ -1,15 +1,16 @@
 import pg from "pg";
-import { createLogger, loadOrExit, optLogLevel, optStr, requireStr } from "@sample-app/platform";
+import { createLogger, loadDbConfig, loadOrExit, optLogLevel, optStr, pgSsl } from "@sample-app/platform";
 import { runMigrations } from "./migrate.js";
 
 const config = loadOrExit((env) => ({
-  databaseUrl: requireStr(env, "DATABASE_URL"),
+  db: loadDbConfig(env),
   logLevel: optLogLevel(env, "LOG_LEVEL", "info"),
   serviceVersion: optStr(env, "SERVICE_VERSION", "dev"),
 }));
 
 const logger = createLogger({ service: "orders-api-migrate", version: config.serviceVersion, level: config.logLevel });
-const pool = new pg.Pool({ connectionString: config.databaseUrl, max: 2 });
+const { host, port, user, password, database, sslMode } = config.db;
+const pool = new pg.Pool({ host, port, user, password, database, ssl: pgSsl(sslMode), max: 2 });
 
 try {
   await runMigrations(pool, logger);

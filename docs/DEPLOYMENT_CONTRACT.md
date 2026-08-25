@@ -37,8 +37,9 @@ Migrations must run **before** any new `orders-api` or `settlement-worker` pod s
 ```yaml
 # Kubernetes Job — runs once per release, must complete successfully before the Deployment rolls.
 command: ["node", "services/orders-api/dist/db/migrate-cli.js"]
+envFrom:
+  - secretRef: { name: sample-app-db }   # DB_HOST, DB_PORT, DB_USERNAME, DB_PASSWORD, DB_NAME
 env:
-  DATABASE_URL: <secret>
   SERVICE_VERSION: <sha>
 ```
 
@@ -73,6 +74,26 @@ Read by `loadCommonConfig` in `@sample-app/platform`, so all four services accep
 `terminationGracePeriodSeconds` above it, or the kubelet kills the process while it is still
 draining and in-flight requests die as connection resets with no error in any log.
 
+### Database connection
+
+Read by `loadDbConfig` in `@sample-app/platform`. `orders-api`, `settlement-worker` and the
+migration Job all read the same set, from one Secret consumed with `envFrom` — the same variable
+names `devops-ai-agent` reads, so one Postgres Secret fits either workload unchanged.
+
+| Variable | Default | Fault knob |
+|---|---|---|
+| `DB_HOST` | _required_ | — |
+| `DB_PORT` | `5432` | — |
+| `DB_USERNAME` | _required_ | — |
+| `DB_PASSWORD` | _required_ | — |
+| `DB_NAME` | `sample_app` | — |
+| `DB_SSL_MODE` | `disable` (`disable\|require\|verify-ca\|verify-full`) | — |
+
+There is no `DATABASE_URL`. Discrete keys let `DB_PASSWORD` be rotated on its own without
+re-templating a connection string, and the boot log redacts it by key name rather than by
+parsing a URL. An unknown `DB_SSL_MODE` fails at boot: falling back to `disable` would hand the
+operator an unencrypted connection they believe is encrypted.
+
 ### storefront
 
 | Variable | Default | Fault knob |
@@ -97,7 +118,7 @@ draining and in-flight requests die as connection resets with no error in any lo
 
 | Variable | Default | Fault knob |
 |---|---|---|
-| `DATABASE_URL` | _required_ | — |
+| `DB_*` | see [Database connection](#database-connection) | — |
 | `DB_POOL_MAX` | `10` | ✓ set to `1` to serialise DB access |
 | `DB_STATEMENT_TIMEOUT_MS` | `5000` | ✓ |
 | `ORDER_RESPONSE_VERSION` | `1` | ✓ set to `2` to break checkout-gateway |
@@ -108,7 +129,7 @@ draining and in-flight requests die as connection resets with no error in any lo
 
 | Variable | Default | Fault knob |
 |---|---|---|
-| `DATABASE_URL` | _required_ | — |
+| `DB_*` | see [Database connection](#database-connection) | — |
 | `SETTLEMENT_BATCH_SIZE` | `50` | ✓ large values grow heap |
 | `SETTLEMENT_POLL_INTERVAL_MS` | `1000` | ✓ raise above arrival rate to cause backlog |
 | `SETTLEMENT_MAX_ATTEMPTS` | `3` | — |
@@ -219,7 +240,7 @@ metadata:
 
 The name must match `sample-app.*` — `SampleAppNotReady` and `SampleAppNoEndpoints` select on it.
 
-### Postgres and the DATABASE_URL secret
+### Postgres and the DB_* secret
 
 The Bitnami postgresql chart creates a database only when `auth.database` is set, **and only on
 first init of an empty PVC.** An already-initialised volume needs a one-time manual
@@ -240,8 +261,17 @@ metadata:
   name: sample-app-db
   namespace: sample-app
 stringData:
-  DATABASE_URL: postgres://sample:CHANGEME@sample-app-postgres:5432/sample_app
+  DB_HOST: sample-app-postgres
+  DB_PORT: "5432"
+  DB_USERNAME: sample
+  DB_PASSWORD: CHANGEME
+  DB_NAME: sample_app
+  DB_SSL_MODE: disable
 ```
+
+Consumed with `envFrom: [{ secretRef: { name: sample-app-db } }]` by orders-api,
+settlement-worker and the migration Job — one Secret, three consumers, no connection string
+duplicated per workload.
 
 ### Common to every Deployment
 

@@ -1,4 +1,5 @@
 import pg from "pg";
+import { pgSsl } from "@sample-app/platform";
 import type { OrdersApiConfig } from "../config.js";
 
 // timestamptz (OID 1184) and timestamp (1114) arrive as ISO strings instead of Date objects,
@@ -13,9 +14,15 @@ pg.types.setTypeParser(1114, (value: string) => new Date(value + "Z").toISOStrin
 // never selected through this pool, so this parser does not reach it.
 pg.types.setTypeParser(20, (value: string) => Number(value));
 
-export function createPool(config: Pick<OrdersApiConfig, "databaseUrl" | "dbPoolMax" | "dbStatementTimeoutMs">): pg.Pool {
+export function createPool(config: Pick<OrdersApiConfig, "db" | "dbPoolMax" | "dbStatementTimeoutMs">): pg.Pool {
+  const { host, port, user, password, database, sslMode } = config.db;
   return new pg.Pool({
-    connectionString: config.databaseUrl,
+    host,
+    port,
+    user,
+    password,
+    database,
+    ssl: pgSsl(sslMode),
     // DB_POOL_MAX=1 genuinely serialises database access: real queueing, real p99,
     // and the value is visible in k8s_describe_pod.
     max: config.dbPoolMax,

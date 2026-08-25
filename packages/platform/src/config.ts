@@ -107,12 +107,57 @@ export function loadCommonConfig(env: EnvSource): CommonConfig {
   };
 }
 
+export const SSL_MODES = ["disable", "require", "verify-ca", "verify-full"] as const;
+export type SslMode = (typeof SSL_MODES)[number];
+
+export interface DbConfig {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  database: string;
+  sslMode: SslMode;
+}
+
+/**
+ * Discrete DB_* variables — the same names devops-ai-agent reads — rather than one
+ * DATABASE_URL: the password is then its own Secret key, rotatable without rewriting a URL,
+ * and it redacts by key name in the boot log instead of depending on URL parsing.
+ */
+export function loadDbConfig(env: EnvSource): DbConfig {
+  const sslMode = optStr(env, "DB_SSL_MODE", "disable");
+  // Validated, unlike the agent's: a typo (`required`) would otherwise fall back to an
+  // unencrypted connection that the operator believes is encrypted.
+  if (!SSL_MODES.includes(sslMode as SslMode)) {
+    throw new ConfigError("DB_SSL_MODE", `must be one of ${SSL_MODES.join("|")}, got "${sslMode}"`);
+  }
+  return {
+    host: requireStr(env, "DB_HOST"),
+    port: optInt(env, "DB_PORT", 5432, { min: 1, max: 65535 }),
+    user: requireStr(env, "DB_USERNAME"),
+    password: requireStr(env, "DB_PASSWORD"),
+    database: optStr(env, "DB_NAME", "sample_app"),
+    sslMode: sslMode as SslMode,
+  };
+}
+
+/**
+ * libpq-style DB_SSL_MODE mapped to node-postgres's `ssl` option. It lives here rather than in
+ * a service because orders-api and settlement-worker both need it and neither owns it.
+ * require = encrypt without verifying the certificate; verify-ca/verify-full = verify it.
+ */
+export function pgSsl(mode: SslMode): false | { rejectUnauthorized: boolean } {
+  if (mode === "require") return { rejectUnauthorized: false };
+  if (mode === "verify-ca" || mode === "verify-full") return { rejectUnauthorized: true };
+  return false;
+}
+
 const SECRET_KEY = /pass|secret|token/i;
 
 /**
  * The resolved config is logged once at boot so a fault knob is findable in Loki as well as
- * in k8s_describe_pod. A blanked-out DATABASE_URL would defeat that, so URLs keep their host
- * and database and lose only the password.
+ * in k8s_describe_pod. A blanked-out value would defeat that, so a URL keeps its host and
+ * database and loses only the password.
  */
 export function redactValue(key: string, value: unknown): unknown {
   if (typeof value !== "string") return value;
@@ -131,7 +176,15 @@ export function redactValue(key: string, value: unknown): unknown {
 
 export function redactConfig(config: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(config)) out[k] = redactValue(k, v);
+  for (const [k, v] of Object.entries(config)) {
+    // Recurse into nested groups. `config.db.password` is not a string at the top level, so
+    // redactValue would hand the object back untouched and the boot log would carry the
+    // password in clear.
+    out[k] =
+      v !== null && typeof v === "object" && !Array.isArray(v)
+        ? redactConfig(v as Record<string, unknown>)
+        : redactValue(k, v);
+  }
   return out;
 }
 
