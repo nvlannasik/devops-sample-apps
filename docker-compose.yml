@@ -1,4 +1,14 @@
 # Local stack. Mirrors the deployment contract: one migration pass, then four services.
+
+# The connection, written once. Three services read it, and a fourth would too — three copies
+# of the same host and password is how a local stack ends up half-pointed at the wrong database.
+x-db-env: &db-env
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_USERNAME: sample
+  DB_PASSWORD: sample
+  DB_NAME: sample_app
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -20,7 +30,7 @@ services:
       dockerfile: services/orders-api/Dockerfile
     command: ["node", "services/orders-api/dist/db/migrate-cli.js"]
     environment:
-      DATABASE_URL: postgres://sample:sample@postgres:5432/sample_app
+      <<: *db-env
       SERVICE_VERSION: local
     depends_on:
       postgres:
@@ -32,7 +42,7 @@ services:
       context: .
       dockerfile: services/orders-api/Dockerfile
     environment:
-      DATABASE_URL: postgres://sample:sample@postgres:5432/sample_app
+      <<: *db-env
       SERVICE_VERSION: local
       LOG_LEVEL: debug
       PORT: "3000"
@@ -47,7 +57,7 @@ services:
       context: .
       dockerfile: services/settlement-worker/Dockerfile
     environment:
-      DATABASE_URL: postgres://sample:sample@postgres:5432/sample_app
+      <<: *db-env
       SERVICE_VERSION: local
       LOG_LEVEL: debug
       PORT: "3001"

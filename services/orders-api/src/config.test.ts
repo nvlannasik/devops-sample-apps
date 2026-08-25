@@ -3,10 +3,13 @@ import assert from "node:assert/strict";
 import { ConfigError } from "@sample-app/platform";
 import { loadConfig } from "./config.js";
 
-const base = { DATABASE_URL: "postgres://app:pw@db:5432/sample_app" };
+const base = { DB_HOST: "db", DB_USERNAME: "app", DB_PASSWORD: "pw" };
 
 test("every documented default is applied", () => {
   const c = loadConfig(base);
+  assert.equal(c.db.port, 5432);
+  assert.equal(c.db.database, "sample_app");
+  assert.equal(c.db.sslMode, "disable");
   assert.equal(c.dbPoolMax, 10);
   assert.equal(c.dbStatementTimeoutMs, 5000);
   assert.equal(c.migrationRequired, true);
@@ -16,11 +19,23 @@ test("every documented default is applied", () => {
   assert.equal(c.gracefulShutdownMs, 10000);
 });
 
-test("DATABASE_URL is required", () => {
+test("DB_HOST is required", () => {
   assert.throws(() => loadConfig({}), (err: unknown) => {
     assert.ok(err instanceof ConfigError);
-    assert.match((err as Error).message, /DATABASE_URL/);
+    assert.match((err as Error).message, /DB_HOST/);
     return true;
+  });
+});
+
+test("the connection is read from the discrete DB_* variables", () => {
+  const c = loadConfig({ ...base, DB_PORT: "6432", DB_NAME: "orders", DB_SSL_MODE: "require" });
+  assert.deepEqual(c.db, {
+    host: "db",
+    port: 6432,
+    user: "app",
+    password: "pw",
+    database: "orders",
+    sslMode: "require",
   });
 });
 

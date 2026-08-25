@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   ConfigError, requireStr, optStr, optInt, optBool, optNumber, requireUrl, optLogLevel,
-  loadCommonConfig, redactConfig, loadOrExit,
+  loadCommonConfig, loadDbConfig, pgSsl, redactConfig, loadOrExit,
 } from "./config.js";
 
 test("requireStr returns a trimmed value", () => {
@@ -85,6 +85,48 @@ test("redactConfig masks anything named like a secret", () => {
   const out = redactConfig({ apiToken: "abc123", webhookSecret: "xyz" });
   assert.equal(out.apiToken, "***");
   assert.equal(out.webhookSecret, "***");
+});
+
+test("redactConfig reaches a password nested inside a group", () => {
+  const out = redactConfig({ db: { host: "db.svc", password: "s3cret" } });
+  const db = out.db as Record<string, unknown>;
+  assert.equal(db.host, "db.svc");
+  assert.equal(db.password, "***");
+});
+
+test("loadDbConfig applies every documented default", () => {
+  const c = loadDbConfig({ DB_HOST: "db.svc", DB_USERNAME: "app", DB_PASSWORD: "pw" });
+  assert.deepEqual(c, {
+    host: "db.svc",
+    port: 5432,
+    user: "app",
+    password: "pw",
+    database: "sample_app",
+    sslMode: "disable",
+  });
+});
+
+test("loadDbConfig requires host, username and password", () => {
+  for (const missing of ["DB_HOST", "DB_USERNAME", "DB_PASSWORD"]) {
+    const env: Record<string, string> = { DB_HOST: "db.svc", DB_USERNAME: "app", DB_PASSWORD: "pw" };
+    delete env[missing];
+    assert.throws(() => loadDbConfig(env), new RegExp(missing), `${missing} should be required`);
+  }
+});
+
+// A typo here is the dangerous case: silently falling back to "disable" gives an unencrypted
+// connection the operator believes is encrypted.
+test("loadDbConfig rejects an unknown DB_SSL_MODE", () => {
+  const base = { DB_HOST: "db.svc", DB_USERNAME: "app", DB_PASSWORD: "pw" };
+  assert.throws(() => loadDbConfig({ ...base, DB_SSL_MODE: "required" }), /DB_SSL_MODE/);
+  assert.equal(loadDbConfig({ ...base, DB_SSL_MODE: "verify-full" }).sslMode, "verify-full");
+});
+
+test("pgSsl maps libpq modes onto node-postgres's ssl option", () => {
+  assert.equal(pgSsl("disable"), false);
+  assert.deepEqual(pgSsl("require"), { rejectUnauthorized: false });
+  assert.deepEqual(pgSsl("verify-ca"), { rejectUnauthorized: true });
+  assert.deepEqual(pgSsl("verify-full"), { rejectUnauthorized: true });
 });
 
 test("loadOrExit writes the reason to stdout and exits 1 on a bad value", () => {

@@ -2,11 +2,24 @@
 
 Persistent context for agentic sessions. Update this when a non-obvious decision is made.
 
-## Current state (2026-08-17)
+## Current state (2026-08-25)
 
-All 22 tasks complete. 195 tests passing (175 without DB, 195 with DB).
+All 22 tasks complete. 201 tests passing (181 without DB, 201 with DB).
 
 ## Architectural decisions
+
+### DB connection: discrete DB_* variables, no DATABASE_URL
+`loadDbConfig` / `pgSsl` in `@sample-app/platform` read `DB_HOST`, `DB_PORT`, `DB_USERNAME`,
+`DB_PASSWORD`, `DB_NAME`, `DB_SSL_MODE` — deliberately the same names `devops-ai-agent` reads,
+so one Postgres Secret fits either workload. This supersedes `DATABASE_URL` in spec §11 and
+the §3 tables; `TEST_DATABASE_URL` is unaffected — it is a test-harness connection string
+handed straight to `pg`, not app config.
+
+Two consequences worth remembering:
+- `redactConfig` now recurses into nested groups. It previously only inspected top-level
+  strings, so `config.db.password` would have been logged in clear at boot.
+- `DB_SSL_MODE` is validated against the four libpq modes. The agent's version is not; a typo
+  there silently means `disable`, i.e. an unencrypted connection believed to be encrypted.
 
 ### Platform file naming vs plan
 The plan listed `http-server.ts`, `http-client.ts`, `tracing.ts`. Implemented as:
@@ -53,5 +66,5 @@ docker compose up -d postgres
 TEST_DATABASE_URL=postgres://sample:sample@127.0.0.1:5432/sample_app npm test
 
 # Migration end-to-end
-DATABASE_URL=postgres://sample:sample@127.0.0.1:5432/sample_app npm run migrate:dev -w @sample-app/orders-api
+DB_HOST=127.0.0.1 DB_USERNAME=sample DB_PASSWORD=sample npm run migrate:dev -w @sample-app/orders-api
 ```

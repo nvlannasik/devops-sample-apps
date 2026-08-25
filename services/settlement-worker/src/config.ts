@@ -1,7 +1,15 @@
-import { loadCommonConfig, optBool, optInt, requireStr, type CommonConfig, type EnvSource } from "@sample-app/platform";
+import {
+  loadCommonConfig,
+  loadDbConfig,
+  optBool,
+  optInt,
+  type CommonConfig,
+  type DbConfig,
+  type EnvSource,
+} from "@sample-app/platform";
 
 export interface WorkerConfig extends CommonConfig {
-  databaseUrl: string;
+  db: DbConfig;
   dbPoolMax: number;
   batchSize: number;
   pollIntervalMs: number;
@@ -12,7 +20,7 @@ export interface WorkerConfig extends CommonConfig {
 export function loadConfig(env: EnvSource): WorkerConfig {
   return {
     ...loadCommonConfig(env),
-    databaseUrl: requireStr(env, "DATABASE_URL"),
+    db: loadDbConfig(env),
     dbPoolMax: optInt(env, "DB_POOL_MAX", 5, { min: 1, max: 1000 }),
     // Every claimed row, order payload included, is held in memory for the batch's lifetime.
     // A large value genuinely grows the working set until the OOM killer intervenes.

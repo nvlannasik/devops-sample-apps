@@ -44,9 +44,9 @@ Ports: storefront `8080`, checkout-gateway `8081`, orders-api `8082`, settlement
 export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH
 npm install
 npm run build:libs
-npm test                              # 195 tests, 20 DB tests skip without Postgres
+npm test                              # 201 tests, 20 DB tests skip without Postgres
 docker compose up -d postgres
-TEST_DATABASE_URL=postgres://sample:sample@127.0.0.1:5432/sample_app npm test  # all 195 pass
+TEST_DATABASE_URL=postgres://sample:sample@127.0.0.1:5432/sample_app npm test  # all 201 pass
 ```
 
 ## Load generator
