@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";
 import { createApp, createLogger, createMetrics, createSemaphore, loadCommonConfig, RollingStats, DownstreamError, type HttpClient } from "@sample-app/platform";
 import { createRoutes, parseForm } from "./routes.js";
+import { APP_CSS } from "./assets.js";
 
 const order = {
   id: "018f0000-0000-4000-8000-000000000001",
@@ -110,7 +111,10 @@ test("a checkout with a bad quantity renders an error page, not a redirect", asy
       redirect: "manual",
     });
     assert.equal(res.status, 400);
-    assert.match(await res.text(), /Something went wrong/);
+    // An error page, not a stack trace: the status and the reason, rendered as HTML.
+    const html = await res.text();
+    assert.match(html, /<html/);
+    assert.match(html, /is not a valid quantity/);
   });
 });
 
@@ -139,7 +143,17 @@ test("GET /orders/:id renders the order, and 404 renders a page not a stack trac
   await withApp(stubClient({ get: () => new DownstreamError("not found", { peer: "checkout-gateway", kind: "status", status: 404 }) }), async (base) => {
     const res = await fetch(`${base}/orders/${order.id}`);
     assert.equal(res.status, 404);
-    assert.match(await res.text(), /Something went wrong/);
+    const html = await res.text();
+    assert.match(html, /<html/);
+    assert.match(html, /not found/);
+    assert.doesNotMatch(html, /DownstreamError|at async/, "a stack trace must never reach the browser");
+  });
+});
+
+test("?live=off is honoured by the server — the reader can stop the page reloading", async () => {
+  await withApp(stubClient({ get: () => chain }), async (base) => {
+    assert.match(await (await fetch(`${base}/status`)).text(), /<meta http-equiv="refresh"/);
+    assert.doesNotMatch(await (await fetch(`${base}/status?live=off`)).text(), /<meta http-equiv="refresh"/);
   });
 });
 
@@ -169,7 +183,7 @@ test("the stylesheet is served at its versioned path and cached", async () => {
     assert.equal(res.status, 200);
     assert.match(res.headers.get("content-type")!, /text\/css/);
     assert.equal(res.headers.get("cache-control"), "public, max-age=3600");
-    assert.ok((await res.text()).includes("--bg"));
+    assert.equal(await res.text(), APP_CSS, "the versioned path must serve the real stylesheet");
   });
 });
 

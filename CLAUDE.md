@@ -13,7 +13,7 @@
 
 ```bash
 npm run build:libs          # compile @sample-app/contracts and @sample-app/platform
-npm test                    # build:libs + run all *.test.ts files (201 tests)
+npm test                    # build:libs + run all *.test.ts files (228 tests)
 npm run build               # compile everything including services
 ```
 
@@ -32,7 +32,7 @@ packages/
   contracts/   types + catalog pricing — zero runtime deps
   platform/    config, logger, metrics, http-server, http-client, shutdown, tracing, semaphore
 services/
-  storefront/           SSR HTML, versioned CSS, load generator
+  storefront/           SSR HTML, versioned CSS, load generator (own Deployment + control page)
   checkout-gateway/     BFF, TTL cache, chain-status
   orders-api/           writes + DB migrations
   settlement-worker/    SKIP LOCKED queue drain
@@ -61,7 +61,9 @@ See `docs/DEPLOYMENT_CONTRACT.md §3` for the full table. Key ones:
 - `ORDER_RESPONSE_VERSION=2` — breaks checkout-gateway parse
 - `ASSET_VERSION=stale` — asset 404s with all metrics green
 - `GATEWAY_TIMEOUT_MS=50` — gateway timeout storm
-- `SSR_CONCURRENCY=1` — head-of-line blocking at storefront
+- `SSR_CONCURRENCY=1` — head-of-line blocking at storefront. Needs the generator's
+  **concurrency** above 1, not just a high rps: one worker is one in-flight request and never
+  makes a serialised server queue.
 
 ## Global constraints
 

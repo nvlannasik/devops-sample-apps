@@ -4,7 +4,7 @@ Persistent context for agentic sessions. Update this when a non-obvious decision
 
 ## Current state (2026-08-25)
 
-All 22 tasks complete. 201 tests passing (181 without DB, 201 with DB).
+All 22 tasks complete. 228 tests passing (208 without DB, 228 with DB).
 
 ## Architectural decisions
 
@@ -43,6 +43,33 @@ Plan specified `installShutdown` returning `() => Promise<void>`.
 `registerShutdown` is kept as a backward-compat alias.
 Services were updated to use `installShutdown` with `tasks: [...]` instead of `hooks: [...]`.
 
+### Load generator: a Deployment with a control page, not a Job
+`loadgen.ts` is the library (config, `runLoad`, `createLoadRunner`), `loadgen-control.ts` the page
+and routes, `loadgen-server.ts` the entry point. Splitting the bootstrap out deleted the old
+`argv[1].endsWith("/loadgen.ts")` sniffing, which only existed because the entry lived in a file
+the tests import.
+
+- **Concurrency is the knob that matters.** One worker is one in-flight request, so a
+  single-worker generator can never make `SSR_CONCURRENCY=1` or `DB_POOL_MAX=1` queue, no matter
+  how high the rps. `rps` is the total across workers, not per worker, so raising concurrency
+  does not silently double the load.
+- The page lives on the generator, never on the storefront: a control route there would land in
+  the storefront's own `http_server_*` series and logs, and the STOP button would be served by
+  the process the load is overwhelming.
+- The generator's pod is deliberately not scraped — its `http_client_*` series would be
+  aggregated into `job="sample-app"`.
+
+### Storefront pages: nothing moves when the data does
+The status page reloads every 2 seconds and the order page every 5, so the layout is built to
+make a reload read as digits changing in place: tabular numerals, a fixed-width state column, a
+reason on its own row rather than in a sixth column, and an order state strip that keeps both
+outcomes present and dims the unreached one. `formatMs` exists because `RollingStats` reports
+p99 as a raw float (`3.548791000000165`), which changed that column's width on every refresh.
+
+A `meta refresh` also discards keyboard focus and re-announces the page to a screen reader every
+2 seconds, so `?live=off` renders the same page without the refresh, with a link to resume. It is
+a link because there is no client JavaScript to make it anything else.
+
 ## Known deviations from spec (from plan §Deviations)
 
 1. `/status` stats come from in-process rolling window, not Prometheus
@@ -50,7 +77,8 @@ Services were updated to use `installShutdown` with `tasks: [...]` instead of `h
 3. `checkout-gateway` requires `WORKER_URL`
 4. `SERVICE_VERSION` defaults to `dev`
 5. Health/introspection endpoints excluded from `http_server_*` metrics
-6. Load generator lives in storefront, not `tools/`
+6. Load generator lives in storefront, not `tools/` — and it is now a Deployment with a control
+   page (`loadgen-server.ts` boots, `loadgen-control.ts` serves), not a Job that runs on start
 7. `settlement_jobs.id` is bigserial, typed as string
 8. `kube_endpoint_address` modern form in alert rules
 

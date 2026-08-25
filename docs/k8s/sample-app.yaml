@@ -354,20 +354,31 @@ spec:
 ---
 # Traffic source. Rate-based rules (SampleAppHighErrorRate, SampleAppHighLatency) do not exist
 # at zero requests per second — this is a prerequisite for most scenarios, not an extra.
-# Runs until deleted. Raise LOADGEN_RPS to 20+ before attempting SampleAppHighLatency.
-apiVersion: batch/v1
-kind: Job
+#
+# A Deployment, not a Job: the pod comes up IDLE and drives nothing until its control page says
+# so, so starting and stopping load is a button rather than a redeploy. Reach it with
+#   kubectl -n sample-app port-forward svc/sample-app-loadgen 8090:3000
+# and open http://localhost:8090. Set LOADGEN_AUTOSTART=true to have it drive from boot instead.
+#
+# Deliberately NOT annotated for scraping: its own http_client_* series would be aggregated into
+# job="sample-app" and pollute the numbers the agent is investigating, and it would change the
+# `up{job="sample-app"}` baseline that DEPLOYMENT_CONTRACT.md §10 tells the operator to expect.
+apiVersion: apps/v1
+kind: Deployment
 metadata:
   name: sample-app-loadgen
   namespace: sample-app
 spec:
-  backoffLimit: 0
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sample-app-loadgen
   template:
     metadata:
       labels:
         app: sample-app-loadgen
     spec:
-      restartPolicy: Never
+      terminationGracePeriodSeconds: 30
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -375,16 +386,48 @@ spec:
       containers:
         - name: loadgen
           image: ghcr.io/OWNER/sample-app-storefront:GIT_SHA
-          command: ["node", "services/storefront/dist/loadgen.js"]
+          command: ["node", "services/storefront/dist/loadgen-server.js"]
+          ports:
+            - name: http
+              containerPort: 3000
           env:
+            - name: SERVICE_VERSION
+              value: GIT_SHA
             - name: TARGET_URL
               value: http://storefront.sample-app.svc.cluster.local:3000
+            # Seeds the control form. Every one of these is editable at runtime on the page.
             - name: LOADGEN_RPS
               value: "10"
+            - name: LOADGEN_CONCURRENCY
+              value: "1"     # raise to 5+ for SSR_CONCURRENCY=1 or DB_POOL_MAX=1 — one worker
+                             # is one in-flight request and can never make the server queue
             - name: LOADGEN_DURATION_SECONDS
-              value: "0"     # 0 = run until the Job is deleted
+              value: "0"     # 0 = run until stopped
             - name: LOADGEN_CHECKOUT_RATIO
               value: "0.3"   # keep above 0, or ORDER_RESPONSE_VERSION=2 has nothing to break
+            - name: LOADGEN_AUTOSTART
+              value: "false" # true = start driving at boot, without touching the page
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
           resources:
             requests: { cpu: 50m, memory: 96Mi }
             limits: { memory: 256Mi }
+---
+# No Ingress, ever. This Service fronts an unauthenticated "generate load" button; reach it
+# with port-forward only.
+apiVersion: v1
+kind: Service
+metadata:
+  name: sample-app-loadgen
+  namespace: sample-app
+spec:
+  selector:
+    app: sample-app-loadgen
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http

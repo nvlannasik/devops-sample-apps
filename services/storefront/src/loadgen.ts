@@ -1,20 +1,33 @@
 import { CATALOG } from "@sample-app/contracts";
-import { loadOrExit, optInt, optNumber, requireUrl, type EnvSource } from "@sample-app/platform";
+import { optBool, optInt, optNumber, requireUrl, type EnvSource } from "@sample-app/platform";
+
+/** Bounds shared by the environment loader and the control form, so both refuse the same values. */
+export const RPS_BOUNDS = { min: 1, max: 10_000 } as const;
+/** One worker is one in-flight request. 100 concurrent fetches is already more than a 50m pod serves. */
+export const CONCURRENCY_BOUNDS = { min: 1, max: 100 } as const;
 
 export interface LoadgenConfig {
   targetUrl: string;
   rps: number;
+  concurrency: number;
   durationSeconds: number;
   checkoutRatio: number;
+  autostart: boolean;
 }
 
 export function loadLoadgenConfig(env: EnvSource): LoadgenConfig {
   return {
     targetUrl: requireUrl(env, "TARGET_URL"),
-    rps: optInt(env, "LOADGEN_RPS", 5, { min: 1, max: 10_000 }),
-    // 0 means run until killed — the normal mode for an in-cluster Job.
+    rps: optInt(env, "LOADGEN_RPS", 5, RPS_BOUNDS),
+    // The knob that makes SSR_CONCURRENCY=1 and DB_POOL_MAX=1 reachable. One worker drives one
+    // request at a time, so a single-worker generator never makes a serialised server queue.
+    concurrency: optInt(env, "LOADGEN_CONCURRENCY", 1, CONCURRENCY_BOUNDS),
+    // 0 means run until stopped — the normal mode for the long-lived Deployment.
     durationSeconds: optInt(env, "LOADGEN_DURATION_SECONDS", 0, { min: 0 }),
     checkoutRatio: optNumber(env, "LOADGEN_CHECKOUT_RATIO", 0.3, { min: 0, max: 1 }),
+    // Off by default: the pod comes up idle and waits for the button. Set it to reproduce the
+    // old run-on-start CLI behaviour, locally or for a load that must exist before anyone looks.
+    autostart: optBool(env, "LOADGEN_AUTOSTART", false),
   };
 }
 
@@ -39,8 +52,14 @@ export interface RunLoadOptions {
   iterations?: number;
   durationSeconds?: number;
   random?: () => number;
-  /** Supply one to watch the running totals from outside — the CLI's ticker does. */
+  /** Supply one to watch the running totals from outside — the control page does. */
   stats?: LoadStats;
+  /**
+   * Aborting ends the loop after the iteration in flight, and skips the pacing sleep so a stop
+   * at 1 rps does not wait out a second. In-flight fetches are left alone: cancelling them would
+   * book a stop as an error and put a spike in the graph the operator just tried to end.
+   */
+  signal?: AbortSignal;
 }
 
 export function emptyStats(): LoadStats {
@@ -72,7 +91,7 @@ export async function runLoad(opts: RunLoadOptions): Promise<LoadStats> {
   };
 
   for (let i = 0; opts.iterations === undefined || i < opts.iterations; i++) {
-    if (Date.now() >= deadline) break;
+    if (Date.now() >= deadline || opts.signal?.aborted) break;
     const startedAt = Date.now();
 
     if (pickAction(random(), opts.checkoutRatio) === "checkout") {
@@ -90,35 +109,103 @@ export async function runLoad(opts: RunLoadOptions): Promise<LoadStats> {
     }
 
     const elapsed = Date.now() - startedAt;
-    if (elapsed < intervalMs) await new Promise((r) => setTimeout(r, intervalMs - elapsed));
+    if (elapsed < intervalMs && !opts.signal?.aborted) {
+      await new Promise((r) => setTimeout(r, intervalMs - elapsed));
+    }
   }
 
   return stats;
 }
 
-// Executed only when run directly (npm run loadgen), never when imported by the tests.
-// Check that argv[1] is exactly this file (not loadgen.test.ts which also contains "loadgen").
-const entryFile = process.argv[1] ?? "";
-if (entryFile.endsWith("/loadgen.ts") || entryFile.endsWith("/loadgen.js")) {
-  const config = loadOrExit(loadLoadgenConfig);
-  const started = Date.now();
-  const current = emptyStats();
-  const report = (): void => {
-    const seconds = (Date.now() - started) / 1000;
-    process.stdout.write(JSON.stringify({ ...current, seconds: Math.round(seconds), rps: +(current.requests / seconds).toFixed(2) }) + "\n");
-  };
-  const ticker = setInterval(report, 10_000);
-  const finish = (): never => { clearInterval(ticker); report(); process.exit(0); };
-  process.on("SIGTERM", finish);
-  process.on("SIGINT", finish);
+export interface RunSettings {
+  rps: number;
+  concurrency: number;
+  checkoutRatio: number;
+  durationSeconds: number;
+}
 
-  await runLoad({
-    targetUrl: config.targetUrl,
-    rps: config.rps,
-    checkoutRatio: config.checkoutRatio,
-    durationSeconds: config.durationSeconds,
-    stats: current,
-  });
-  clearInterval(ticker);
-  report();
+export interface RunnerState {
+  running: boolean;
+  /** The settings of the run in flight, or of the last one to finish. */
+  settings: RunSettings | null;
+  startedAt: string | null;
+  stats: LoadStats;
+  /** Wall-clock seconds of the current run, or of the last one. */
+  seconds: number;
+}
+
+export interface LoadRunner {
+  /** Restarts with the new settings if a run is already in flight. */
+  start(settings: RunSettings): Promise<void>;
+  stop(): Promise<void>;
+  state(): RunnerState;
+}
+
+/**
+ * Owns the workers so the control routes stay a thin translation of a form into settings.
+ *
+ * `rps` is the total across workers, not per worker: doubling concurrency to make requests
+ * queue would otherwise double the load as a side effect, and the operator would be changing
+ * two variables while believing they changed one.
+ */
+export function createLoadRunner(targetUrl: string): LoadRunner {
+  let controller: AbortController | null = null;
+  let workers: Promise<unknown> = Promise.resolve();
+  let settings: RunSettings | null = null;
+  let startedAtMs: number | null = null;
+  let endedAtMs: number | null = null;
+  let stats = emptyStats();
+
+  const stop = async (): Promise<void> => {
+    controller?.abort();
+    controller = null;
+    await workers;
+  };
+
+  return {
+    async start(next: RunSettings): Promise<void> {
+      await stop();
+      const local = new AbortController();
+      controller = local;
+      settings = next;
+      startedAtMs = Date.now();
+      endedAtMs = null;
+      // A fresh counter per run. Carrying the previous run's errors forward would make the
+      // first reading after a fix look exactly like no fix at all.
+      stats = emptyStats();
+
+      workers = Promise.all(
+        Array.from({ length: next.concurrency }, () =>
+          runLoad({
+            targetUrl,
+            rps: next.rps / next.concurrency,
+            checkoutRatio: next.checkoutRatio,
+            durationSeconds: next.durationSeconds,
+            stats,
+            signal: local.signal,
+          }),
+        ),
+      ).then(() => {
+        // A bounded run ends by itself. Only clear the flag if this run is still the current
+        // one — a restart has already replaced it.
+        if (controller === local) {
+          controller = null;
+          endedAtMs = Date.now();
+        }
+      });
+    },
+
+    stop,
+
+    state(): RunnerState {
+      const until = controller ? Date.now() : (endedAtMs ?? startedAtMs ?? 0);
+      return {
+        running: controller !== null,
+        settings,
+        startedAt: startedAtMs === null ? null : new Date(startedAtMs).toISOString(),
+        stats,
+        seconds: startedAtMs === null ? 0 : Math.max(0, (until - startedAtMs) / 1000),
+      };
+    },
+  };
 }

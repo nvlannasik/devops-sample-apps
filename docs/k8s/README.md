@@ -5,7 +5,7 @@ repo, or apply them to a scratch cluster. Nothing here is reconciled from this r
 
 | File | What it is |
 |---|---|
-| `sample-app.yaml` | Namespace, DB secret, migration Job, 4 Deployments + Services, loadgen Job |
+| `sample-app.yaml` | Namespace, DB secret, migration Job, 4 Deployments + Services, loadgen Deployment + Service |
 | `prometheus-values.yaml` | Scrape job **and** alert rules, as community-chart Helm values |
 | `../alerting/sample-app-rules.yaml` | The rules alone — the authoritative copy, kept beside the metric names it queries |
 
@@ -44,8 +44,11 @@ PVC. App migrations create tables, never the database.
   nothing in any log.
 - **`memory: 256Mi` on settlement-worker** is what makes `SETTLEMENT_BATCH_SIZE=200000` reach
   the OOM killer in bounded time instead of swelling forever.
-- **The loadgen Job** is a prerequisite, not an extra: error-rate and latency are rate-based and
-  do not exist at zero requests per second.
+- **The loadgen Deployment** is a prerequisite, not an extra: error-rate and latency are
+  rate-based and do not exist at zero requests per second. It comes up idle — start it from its
+  control page (`kubectl -n sample-app port-forward svc/sample-app-loadgen 8090:3000`), or set
+  `LOADGEN_AUTOSTART=true`. For a latency scenario raise its concurrency above 1: one worker is
+  one in-flight request and never makes a serialised server queue.
 
 ## Deliberately not here
 

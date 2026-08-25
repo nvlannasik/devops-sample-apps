@@ -157,26 +157,51 @@ Additionally:
 
 ## §5 Load generator
 
-The load generator lives in the `storefront` image:
+The generator ships in the `storefront` image and runs as its own **Deployment**, not a Job. It
+comes up **idle** and drives nothing until its control page says so, so starting, re-rating and
+stopping load is a button rather than a redeploy — the load stays a runtime knob while the
+workload under test stays untouched.
 
 ```sh
-# From a laptop
-TARGET_URL=http://storefront:3000 LOADGEN_RPS=20 node services/storefront/dist/loadgen.js
+# In-cluster: reach the control page
+kubectl -n sample-app port-forward svc/sample-app-loadgen 8090:3000
+open http://localhost:8090
 
-# In-cluster Job
-command: ["node", "services/storefront/dist/loadgen.js"]
-env:
-  TARGET_URL: http://storefront.sample-app.svc.cluster.local:3000
-  LOADGEN_RPS: "50"
-  LOADGEN_DURATION_SECONDS: "0"   # 0 = run until killed
+# From a laptop, driving a local stack, starting immediately
+TARGET_URL=http://localhost:8080 LOADGEN_AUTOSTART=true npm run loadgen
 ```
+
+The page serves itself on the generator's own port with an inline stylesheet, so `ASSET_VERSION`
+— a fault knob — cannot break the control surface during the incident it is used to create.
+
+| Route | Description |
+|---|---|
+| `GET /` | Control page: live counters and the settings form |
+| `POST /control/start` | Start (or restart with new settings) — form post, redirects to `/` |
+| `POST /control/stop` | Stop after the requests in flight finish |
 
 | Variable | Default |
 |---|---|
 | `TARGET_URL` | _required_ |
-| `LOADGEN_RPS` | `5` |
-| `LOADGEN_DURATION_SECONDS` | `0` (run until killed) |
+| `LOADGEN_RPS` | `5` — total across workers, not per worker |
+| `LOADGEN_CONCURRENCY` | `1` — requests in flight at once |
+| `LOADGEN_DURATION_SECONDS` | `0` (run until stopped) |
 | `LOADGEN_CHECKOUT_RATIO` | `0.3` — share of requests that check out; the rest browse |
+| `LOADGEN_AUTOSTART` | `false` — `true` drives from boot without touching the page |
+
+Every one of these seeds the form and is editable at runtime; the environment only decides where
+the run starts.
+
+**`LOADGEN_CONCURRENCY` is the one that decides whether a latency scenario works.** One worker is
+one in-flight request, so a single-worker generator can never make a server queue no matter how
+high `LOADGEN_RPS` goes — `SSR_CONCURRENCY=1` and `DB_POOL_MAX=1` both stay invisible. Raise it
+to 5 or more for those two.
+
+The generator's pod is deliberately **not** scraped: its own `http_client_*` series would be
+aggregated into `job="sample-app"` and pollute the numbers under investigation, and it would
+change the `up{job="sample-app"}` baseline §10 tells you to expect.
+
+**No Ingress.** The control page is an unauthenticated "generate load" button. Port-forward only.
 
 ---
 
@@ -412,7 +437,7 @@ are reachable by changing app config, two are not reachable that way at all.
 | rule | threshold | what to do | time to fire |
 |---|---|---|---|
 | `SampleAppHighErrorRate` | 5xx rate > 5% | `kubectl -n sample-app set env deploy/orders-api ORDER_RESPONSE_VERSION=2` | ~6 min |
-| `SampleAppHighLatency` | p99 > 1s | `kubectl -n sample-app set env deploy/storefront SSR_CONCURRENCY=1` **and raise `LOADGEN_RPS` to ≥20** | ~6 min |
+| `SampleAppHighLatency` | p99 > 1s | `kubectl -n sample-app set env deploy/storefront SSR_CONCURRENCY=1` **and set the generator to rps ≥20 with concurrency ≥5** | ~6 min |
 | `SampleAppSettlementBacklog` | oldest job > 300s | `kubectl -n sample-app set env deploy/settlement-worker SETTLEMENT_POLL_INTERVAL_MS=600000` | **~6 min minimum** |
 | `SampleAppTargetDown` | `up == 0` for 2m | `kubectl -n sample-app scale deploy/settlement-worker --replicas=0` | ~2-3 min |
 | `SampleAppNotReady` | ready < spec for 5m | patch the readiness probe to a path that does not exist, e.g. `/ready` | ~5-6 min |
@@ -428,9 +453,10 @@ Notes that decide whether a run works:
   A 4xx never counts — the gateway forwards upstream 4xx unchanged precisely so a bad cart
   stays out of this rule.
 - **`SampleAppHighLatency`** — the threshold is p99 > **1s**, and the histogram's top buckets
-  are 1, 2.5, 5, 10. `SSR_CONCURRENCY=1` only crosses 1s if requests actually queue, which
-  needs real concurrent load; at 5 rps the storefront keeps up and nothing fires.
-  `DB_POOL_MAX=1` on orders-api works the same way and also needs the load.
+  are 1, 2.5, 5, 10. `SSR_CONCURRENCY=1` only crosses 1s if requests actually queue, which needs
+  **concurrent** load, not merely a high request rate: raise the generator's `concurrency` above
+  1, or a single worker's one-request-at-a-time loop finds an idle server every time and nothing
+  fires no matter what rps says. `DB_POOL_MAX=1` on orders-api works the same way.
 - **`SampleAppSettlementBacklog`** — the threshold is *oldest job age > 300s*, so nothing can
   fire in under 5 minutes no matter how slow the worker is; the rule's `for: 1m` sits on top of
   that. Raising the poll interval starves the queue but does not backdate the jobs. Scaling the

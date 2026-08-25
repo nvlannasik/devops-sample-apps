@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ChainStatus, OrderV1 } from "@sample-app/contracts";
-import { catalogPage, errorPage, esc, formatCents, orderPage, statusPage } from "./views.js";
+import { catalogPage, clockOf, errorPage, esc, formatAge, formatCents, formatMs, orderPage, statusPage } from "./views.js";
 
 const ASSET = "/assets/abc123/app.css";
 
@@ -88,6 +88,31 @@ test("the status page refreshes itself without JavaScript", () => {
   assert.match(statusPage(chain, ASSET), /<meta http-equiv="refresh" content="2">/);
 });
 
+// A meta refresh throws away keyboard focus and re-announces the whole page to a screen reader,
+// every 2 seconds, with no way out. The stop control is a link because there is no JavaScript.
+test("auto-refresh can be stopped, and the page says which state it is in", () => {
+  const live = statusPage(chain, ASSET, true);
+  assert.match(live, /<meta http-equiv="refresh"/);
+  assert.match(live, /href="\?live=off"/);
+
+  const paused = statusPage(chain, ASSET, false);
+  assert.doesNotMatch(paused, /<meta http-equiv="refresh"/);
+  assert.match(paused, /href="\?live=on"/);
+  assert.match(paused, /Paused/);
+});
+
+test("the order page is stoppable too — it reloads while the worker settles the job", () => {
+  assert.match(orderPage(order, ASSET, true), /<meta http-equiv="refresh" content="5">/);
+  assert.doesNotMatch(orderPage(order, ASSET, false), /<meta http-equiv="refresh"/);
+});
+
+test("the quantity field carries a visible label, not an aria-label alone", () => {
+  const html = catalogPage(ASSET);
+  assert.match(html, /<label class="qty" for="qty-sku-widget">Qty/);
+  assert.match(html, /<input id="qty-sku-widget" type="number" name="qty"/);
+  assert.doesNotMatch(html, /aria-label/, "a visible label makes the aria-label redundant");
+});
+
 test("a hop with no stats renders its failure detail instead of blank cells", () => {
   const html = statusPage(chain, ASSET);
   assert.ok(html.includes("orders-api timed out after 2000ms"));
@@ -96,6 +121,55 @@ test("a hop with no stats renders its failure detail instead of blank cells", ()
 test("a null queue renders as unknown rather than zero — zero is a claim, unknown is the truth", () => {
   const html = statusPage({ ...chain, queue: null }, ASSET);
   assert.ok(html.includes("unknown"));
+});
+
+// RollingStats hands over a raw float. Rendered whole it is 3.548791000000165, and that column
+// changes width on every 2-second refresh.
+test("p99 is rendered at a fixed precision, not as a raw float", () => {
+  assert.equal(formatMs(3.548791000000165), "3.5");
+  assert.equal(formatMs(340), "340.0");
+
+  const raw = { ...chain.hops[0]!, stats: { ...chain.hops[0]!.stats!, p99Ms: 3.548791000000165 } };
+  const html = statusPage({ ...chain, hops: [raw] }, ASSET);
+  assert.match(html, /<td class="num">3\.5<\/td>/);
+  assert.doesNotMatch(html, /3\.548/);
+});
+
+test("formatAge stays readable as a job ages past the alert threshold", () => {
+  assert.equal(formatAge(9), "9s");
+  assert.equal(formatAge(59), "59s");
+  assert.equal(formatAge(60), "1m 00s");
+  assert.equal(formatAge(137), "2m 17s");
+  assert.equal(formatAge(3600), "1h 00m");
+  assert.equal(formatAge(-5), "0s", "a clock skew must not render a negative age");
+});
+
+test("clockOf keeps the time and drops the date, and passes anything else through", () => {
+  assert.equal(clockOf("2026-08-16T09:14:22.417Z"), "09:14:22");
+  assert.equal(clockOf("not a timestamp"), "not a timestamp");
+});
+
+// The page reloads every 5 seconds while the worker settles the job. If the strip grew a cell
+// on the way, the table below it would jump under the reader mid-refresh.
+test("the order state strip keeps every outcome present, whatever the status is", () => {
+  const cells = (html: string): number => (html.match(/<dt>/g) ?? []).length;
+  const placed = orderPage(order, ASSET);
+  const settled = orderPage({ ...order, status: "settled" }, ASSET);
+  const failed = orderPage({ ...order, status: "failed" }, ASSET);
+
+  assert.equal(cells(placed), 3);
+  assert.equal(cells(settled), 3);
+  assert.equal(cells(failed), 3);
+  assert.match(settled, /reached-ok/);
+  assert.match(failed, /reached-fail/);
+  assert.doesNotMatch(placed, /reached-ok|reached-fail/);
+});
+
+test("a hop's reason gets its own row, so a sentence never widens the number columns", () => {
+  const html = statusPage(chain, ASSET);
+  assert.match(html, /<tr><td class="reason detail" colspan="5">orders-api timed out after 2000ms<\/td><\/tr>/);
+  // A healthy hop contributes no reason row at all.
+  assert.equal((html.match(/class="reason/g) ?? []).length, 2, "one per hop that reported a detail");
 });
 
 test("the error page carries the trace id when there is one", () => {

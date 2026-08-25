@@ -32,6 +32,11 @@ export function assetHref(version: string): string {
   return `/assets/${encodeURIComponent(version)}/app.css`;
 }
 
+/** Live is the default; `?live=off` is the reader asking the page to hold still. */
+export function isLive(url: URL): boolean {
+  return url.searchParams.get("live") !== "off";
+}
+
 class BadRequestError extends Error {}
 
 function page(deps: RouteDeps, handler: (ctx: RouteContext) => Promise<void>) {
@@ -87,18 +92,18 @@ export function createRoutes(deps: RouteDeps): Route[] {
     {
       method: "GET",
       pattern: "/orders/:id",
-      handler: page(deps, async ({ res, params }) => {
+      handler: page(deps, async ({ res, params, url }) => {
         const order = await deps.client.getJson<OrderV1>(
           "checkout-gateway",
           `${deps.gatewayUrl}/api/orders/${encodeURIComponent(params["id"]!)}`,
         );
-        sendHtml(res, 200, orderPage(order, href()));
+        sendHtml(res, 200, orderPage(order, href(), isLive(url)));
       }),
     },
     {
       method: "GET",
       pattern: "/status",
-      handler: page(deps, async ({ res }) => {
+      handler: page(deps, async ({ res, url }) => {
         const self = { name: "storefront", state: "ok" as const, stats: deps.selfStats() };
         let chain: ChainStatus;
         try {
@@ -111,7 +116,7 @@ export function createRoutes(deps: RouteDeps): Route[] {
             checkedAt: new Date().toISOString(),
           };
         }
-        sendHtml(res, 200, statusPage({ ...chain, hops: [self, ...chain.hops] }, href()));
+        sendHtml(res, 200, statusPage({ ...chain, hops: [self, ...chain.hops] }, href(), isLive(url)));
       }),
     },
     {
