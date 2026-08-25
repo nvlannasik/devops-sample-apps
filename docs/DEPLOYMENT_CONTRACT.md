@@ -188,6 +188,8 @@ The page serves itself on the generator's own port with an inline stylesheet, so
 | `LOADGEN_DURATION_SECONDS` | `0` (run until stopped) |
 | `LOADGEN_CHECKOUT_RATIO` | `0.3` — share of requests that check out; the rest browse |
 | `LOADGEN_AUTOSTART` | `false` — `true` drives from boot without touching the page |
+| `LOADGEN_UI_PASSWORD` | _unset_ — **the page serves 503 until this is set** |
+| `LOADGEN_UI_COOKIE_SECURE` | `true` — set `false` only for a plain-HTTP hostname |
 
 Every one of these seeds the form and is editable at runtime; the environment only decides where
 the run starts.
@@ -201,7 +203,34 @@ The generator's pod is deliberately **not** scraped: its own `http_client_*` ser
 aggregated into `job="sample-app"` and pollute the numbers under investigation, and it would
 change the `up{job="sample-app"}` baseline §10 tells you to expect.
 
-**No Ingress.** The control page is an unauthenticated "generate load" button. Port-forward only.
+### Guarding the control page
+
+The page is behind a shared password, the same design the agent's dashboard uses
+(`devops-ai-agent/src/dashboard/auth.ts` — separate repos, so `services/storefront/src/auth.ts`
+is a second copy on purpose; fix a flaw in one and fix it in the other).
+
+- **Signed sessions, not stored ones.** The cookie carries its own expiry plus an HMAC over that
+  expiry, so it needs no server-side table, survives a pod restart, and is valid on every
+  replica. A map of session ids would sign everyone out on each rolling update.
+- **`scrypt`, not a bare HMAC over the password.** A token is two thirds public, so its signature
+  is an offline oracle for the key that produced it; a memory-hard KDF makes a guessable password
+  cost ~100ms per guess instead of microseconds.
+- **Failed-login throttle**, 10 per 5 minutes, keyed on the socket address. One shared password
+  is a guessable secret and an unthrottled endpoint turns that into an offline-speed attack.
+- **`SameSite=Lax`, where the agent's dashboard uses `Strict`.** The storefront links here from
+  another origin, and `Strict` withholds the cookie on exactly that navigation — every click
+  would re-ask an already-signed-in operator for the password. `Lax` still withholds it on a
+  cross-site POST, which is what protects Start and Stop.
+- **Fail closed.** `LOADGEN_UI_PASSWORD` unset serves 503 with the reason rather than an
+  anonymous Start button. The probes are served by `createApp` and never reach the gate, so a
+  missing password closes the page without taking the pod out of service.
+
+**Exposing it is a choice, not a default.** Behind TLS with a real password it is a demo surface;
+on plain HTTP it is a Start button anyone can find. Port-forward remains the safe option.
+
+**`LOADGEN_UI_URL` on the storefront** puts a "Load generator" button in its header. A browser
+follows it, so it must be an address a browser can reach — the Ingress host or your port-forward,
+never the in-cluster Service DNS. Unset hides the button.
 
 ---
 

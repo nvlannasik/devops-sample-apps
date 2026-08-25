@@ -66,6 +66,17 @@ header nav a {
   transition: color 160ms ease, border-color 160ms ease;
 }
 header nav a:hover { color: var(--text); border-bottom-color: var(--signal); }
+/* The one link that leaves this app. It reads as an action because it is one — behind it is a
+   button that puts real load on the cluster. */
+header nav a.nav-cta {
+  margin-left: 6px;
+  padding: 0 12px;
+  color: var(--signal);
+  border: 1px solid var(--line);
+  border-bottom-color: var(--line);
+  border-radius: 8px;
+}
+header nav a.nav-cta:hover { color: var(--ink); background: var(--signal); border-color: var(--signal); }
 
 h2 {
   display: flex;

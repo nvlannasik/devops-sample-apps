@@ -36,7 +36,8 @@ curl http://localhost:8080/          # storefront catalog
 curl http://localhost:8080/status    # chain status page
 ```
 
-Ports: storefront `8080`, checkout-gateway `8081`, orders-api `8082`, settlement-worker `8083`.
+Ports: storefront `8080`, checkout-gateway `8081`, orders-api `8082`, settlement-worker `8083`,
+loadgen `8090`.
 
 ## Development
 
@@ -44,9 +45,9 @@ Ports: storefront `8080`, checkout-gateway `8081`, orders-api `8082`, settlement
 export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH
 npm install
 npm run build:libs
-npm test                              # 201 tests, 20 DB tests skip without Postgres
+npm test                              # 251 tests, 20 DB tests skip without Postgres
 docker compose up -d postgres
-TEST_DATABASE_URL=postgres://sample:sample@127.0.0.1:5432/sample_app npm test  # all 201 pass
+TEST_DATABASE_URL=postgres://sample:sample@127.0.0.1:5432/sample_app npm test  # all 251 pass
 ```
 
 ## Load generator
@@ -55,23 +56,30 @@ A traffic source with a control page. It runs as its own Deployment (from the st
 no extra image), comes up **idle**, and starts, re-rates and stops from a button, so driving load
 never means editing a workload.
 
+`docker compose up` brings it up alongside the rest; the storefront header then carries a
+**Load generator** button pointing at it (password `local-demo`).
+
 ```bash
-# Laptop — the page at http://localhost:3000
-TARGET_URL=http://localhost:8080 npm run loadgen
+# In-cluster
+kubectl -n sample-app port-forward svc/sample-app-loadgen 8090:3000
+
+# Standalone, against a local stack
+TARGET_URL=http://localhost:8080 LOADGEN_UI_PASSWORD=secret LOADGEN_UI_COOKIE_SECURE=false npm run loadgen
 
 # ...or skip the page and drive immediately
 TARGET_URL=http://localhost:8080 LOADGEN_RPS=20 LOADGEN_AUTOSTART=true npm run loadgen
-
-# In-cluster
-kubectl -n sample-app port-forward svc/sample-app-loadgen 8090:3000
 ```
+
+The page is behind a shared password with a signed session cookie and a failed-login throttle —
+the same design as the agent's dashboard. With `LOADGEN_UI_PASSWORD` unset it serves 503 rather
+than an anonymous Start button. Set `LOADGEN_UI_URL` on the storefront to show the header button;
+a browser follows it, so it must be an address a browser can reach.
 
 `LOADGEN_CONCURRENCY` (default `1`) is how many requests are in flight at once, and it is what
 decides whether a latency scenario works at all: one worker is one request at a time, so it never
 makes a server with `SSR_CONCURRENCY=1` or `DB_POOL_MAX=1` queue — no matter how high the rps.
 Raise it to 5+ for those. See [`DEPLOYMENT_CONTRACT.md` §5](docs/DEPLOYMENT_CONTRACT.md#5-load-generator).
 
-The control page has no authentication. Port-forward only; never put an Ingress in front of it.
 
 ## Fault catalog
 

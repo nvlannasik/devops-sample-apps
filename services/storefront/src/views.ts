@@ -45,6 +45,8 @@ export interface LayoutOptions {
   assetHref: string;
   body: string;
   refreshSeconds?: number;
+  /** Absolute, browser-reachable, and off by default. See StorefrontConfig.loadgenUrl. */
+  loadgenUrl?: string | null;
 }
 
 export function layout(opts: LayoutOptions): string {
@@ -60,7 +62,11 @@ ${opts.refreshSeconds ? `<meta http-equiv="refresh" content="${opts.refreshSecon
 <main>
 <header>
   <h1>${MARK}sample store</h1>
-  <nav><a href="/">Catalog</a><a href="/status">Chain</a></nav>
+  <nav><a href="/">Catalog</a><a href="/status">Chain</a>${
+    // rel="noopener": the generator's page is a different origin, and a link that opens it must
+    // not hand it a window.opener handle back into this one.
+    opts.loadgenUrl ? `<a class="nav-cta" href="${esc(opts.loadgenUrl)}" rel="noopener">Load generator</a>` : ""
+  }</nav>
 </header>
 ${opts.body}
 </main>
@@ -80,7 +86,7 @@ export function liveToggle(live: boolean): string {
     : `<a class="live paused" href="?live=on">Paused · resume</a>`;
 }
 
-export function catalogPage(assetHref: string): string {
+export function catalogPage(assetHref: string, loadgenUrl: string | null = null): string {
   const items = CATALOG.map((product) => `  <article class="item">
     <h3>${esc(product.name)}</h3>
     <span class="sku">${esc(product.sku)}</span>
@@ -96,6 +102,7 @@ export function catalogPage(assetHref: string): string {
   return layout({
     title: "Catalog — Sample Store",
     assetHref,
+    loadgenUrl,
     body: `<h2>Catalog</h2>
 <div class="grid">
 ${items}
@@ -121,7 +128,7 @@ ${cell("Failed", failed ? clockOf(order.updated_at) : "—", failed ? "reached r
 </dl>`;
 }
 
-export function orderPage(order: OrderV1, assetHref: string, live = true): string {
+export function orderPage(order: OrderV1, assetHref: string, live = true, loadgenUrl: string | null = null): string {
   const lines = order.items.map((item) => `      <tr>
         <td><code>${esc(item.sku)}</code></td>
         <td class="num">${esc(item.qty)}</td>
@@ -132,6 +139,7 @@ export function orderPage(order: OrderV1, assetHref: string, live = true): strin
   return layout({
     title: `Order ${order.id} — Sample Store`,
     assetHref,
+    loadgenUrl,
     ...(live ? { refreshSeconds: 5 } : {}),
     body: `<h2>Order ${liveToggle(live)}</h2>
 <div class="card pad">
@@ -169,7 +177,7 @@ function hopRows(hop: HopStatus): string {
       <tr><td class="reason detail" colspan="5">${esc(hop.detail)}</td></tr>`;
 }
 
-export function statusPage(chain: ChainStatus, assetHref: string, live = true): string {
+export function statusPage(chain: ChainStatus, assetHref: string, live = true, loadgenUrl: string | null = null): string {
   const queue = chain.queue
     ? `<dl class="queue">
     <div><dt>Queue depth</dt><dd>${esc(chain.queue.depth)}</dd></div>
@@ -180,6 +188,7 @@ export function statusPage(chain: ChainStatus, assetHref: string, live = true): 
   return layout({
     title: "Chain status — Sample Store",
     assetHref,
+    loadgenUrl,
     ...(live ? { refreshSeconds: 2 } : {}),
     body: `<h2>Chain <span class="detail">checked ${esc(clockOf(chain.checkedAt))}</span> ${liveToggle(live)}</h2>
 <div class="card">

@@ -49,7 +49,13 @@ const server = createApp({
   metrics,
   logger,
   stats: new RollingStats(),
-  routes: createControlRoutes({ runner, targetUrl: config.targetUrl, defaults }),
+  routes: createControlRoutes({
+    runner,
+    targetUrl: config.targetUrl,
+    defaults,
+    password: config.uiPassword,
+    cookieSecure: config.uiCookieSecure,
+  }),
   // Ready as soon as it is listening. The target being unreachable is the incident under test,
   // not a reason for the generator to drop out of its own Service.
   readiness: async () => ({ ok: true }),
@@ -64,6 +70,10 @@ installShutdown({
     ...(tracing ? [{ name: "tracing", run: () => tracing.shutdown() }] : []),
   ],
 });
+
+if (!config.uiPassword) {
+  logger.warn("control page disabled: LOADGEN_UI_PASSWORD is not set, serving 503 until it is");
+}
 
 await listen(server, config.port, logger);
 

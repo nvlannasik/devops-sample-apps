@@ -4,7 +4,7 @@ Persistent context for agentic sessions. Update this when a non-obvious decision
 
 ## Current state (2026-08-25)
 
-All 22 tasks complete. 228 tests passing (208 without DB, 228 with DB).
+All 22 tasks complete. 251 tests passing (231 without DB, 251 with DB).
 
 ## Architectural decisions
 
@@ -58,6 +58,15 @@ the tests import.
   the process the load is overwhelming.
 - The generator's pod is deliberately not scraped — its `http_client_*` series would be
   aggregated into `job="sample-app"`.
+- **The control page is guarded.** `services/storefront/src/auth.ts` is a port of
+  `devops-ai-agent/src/dashboard/auth.ts` — separate repos, no shared module, so it is a second
+  copy on purpose. One divergence: `SameSite=Lax` instead of `Strict`, because the storefront
+  links here from another origin and `Strict` withholds the cookie on exactly that navigation.
+  `Lax` still withholds it on cross-site POSTs, which is what guards Start and Stop.
+  `LOADGEN_UI_PASSWORD` unset serves 503; the probes never reach the gate, so a missing password
+  closes the page without taking the pod out of service.
+- `LOADGEN_UI_URL` on the storefront renders the header button. A browser follows it, so the
+  in-cluster Service DNS is the one value that cannot work there.
 
 ### Storefront pages: nothing moves when the data does
 The status page reloads every 2 seconds and the order page every 5, so the layout is built to

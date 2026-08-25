@@ -45,6 +45,22 @@ test("the catalog lists every product with a checkout form", () => {
   assert.ok(html.includes("159.99"));
 });
 
+test("the load generator link is off unless an address is configured", () => {
+  assert.doesNotMatch(catalogPage(ASSET), /Load generator/);
+  assert.doesNotMatch(statusPage(chain, ASSET), /Load generator/);
+
+  const url = "https://loadgen.example.com";
+  for (const html of [catalogPage(ASSET, url), statusPage(chain, ASSET, true, url), orderPage(order, ASSET, true, url)]) {
+    assert.match(html, new RegExp(`<a class="nav-cta" href="${url}" rel="noopener">Load generator</a>`));
+  }
+});
+
+test("the configured address is escaped, and carries rel=noopener across origins", () => {
+  const html = catalogPage(ASSET, `https://x/"><script>alert(1)</script>`);
+  assert.doesNotMatch(html, /<script>alert/);
+  assert.match(html, /rel="noopener"/);
+});
+
 test("every page links the versioned stylesheet — a wrong ASSET_VERSION really 404s", () => {
   for (const html of [catalogPage(ASSET), orderPage(order, ASSET), statusPage(chain, ASSET)]) {
     assert.ok(html.includes(`<link rel="stylesheet" href="${ASSET}">`));

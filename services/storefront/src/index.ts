@@ -47,6 +47,7 @@ const server = createApp({
     gatewayUrl: config.gatewayUrl,
     assetVersion: config.assetVersion,
     assetCacheSeconds: config.assetCacheSeconds,
+    loadgenUrl: config.loadgenUrl,
   }),
   readiness: async () => {
     try {
