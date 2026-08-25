@@ -51,14 +51,27 @@ TEST_DATABASE_URL=postgres://sample:sample@127.0.0.1:5432/sample_app npm test  #
 
 ## Load generator
 
-```bash
-# Laptop
-TARGET_URL=http://localhost:8080 LOADGEN_RPS=20 npm run loadgen
+A traffic source with a control page. It runs as its own Deployment (from the storefront image —
+no extra image), comes up **idle**, and starts, re-rates and stops from a button, so driving load
+never means editing a workload.
 
-# In-cluster Job (uses the storefront image, no extra image needed)
-# command: ["node", "services/storefront/dist/loadgen.js"]
-# env: TARGET_URL, LOADGEN_RPS, LOADGEN_DURATION_SECONDS
+```bash
+# Laptop — the page at http://localhost:3000
+TARGET_URL=http://localhost:8080 npm run loadgen
+
+# ...or skip the page and drive immediately
+TARGET_URL=http://localhost:8080 LOADGEN_RPS=20 LOADGEN_AUTOSTART=true npm run loadgen
+
+# In-cluster
+kubectl -n sample-app port-forward svc/sample-app-loadgen 8090:3000
 ```
+
+`LOADGEN_CONCURRENCY` (default `1`) is how many requests are in flight at once, and it is what
+decides whether a latency scenario works at all: one worker is one request at a time, so it never
+makes a server with `SSR_CONCURRENCY=1` or `DB_POOL_MAX=1` queue — no matter how high the rps.
+Raise it to 5+ for those. See [`DEPLOYMENT_CONTRACT.md` §5](docs/DEPLOYMENT_CONTRACT.md#5-load-generator).
+
+The control page has no authentication. Port-forward only; never put an Ingress in front of it.
 
 ## Fault catalog
 
@@ -97,5 +110,5 @@ baseline, inject, wait out the rule window, revert.
   their own — two copies of an env table drift.
 - [`docs/alerting/sample-app-rules.yaml`](docs/alerting/sample-app-rules.yaml) — Prometheus alert rules
 - [`docs/k8s/`](docs/k8s/) — reference manifests: the four Deployments and Services, the
-  migration and loadgen Jobs, and the Prometheus scrape job. Copy-and-edit material; this repo
+  migration Job, the loadgen Deployment, and the Prometheus scrape job. Copy-and-edit material; this repo
   deploys nothing.

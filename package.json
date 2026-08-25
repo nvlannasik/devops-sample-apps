@@ -9,7 +9,7 @@
     "build:libs": "npm run build -w @sample-app/contracts && npm run build -w @sample-app/platform",
     "build": "npm run build:libs && npm run build -w @sample-app/storefront && npm run build -w @sample-app/checkout-gateway && npm run build -w @sample-app/orders-api && npm run build -w @sample-app/settlement-worker",
     "test": "npm run build:libs && node --import tsx --test \"packages/**/src/**/*.test.ts\" \"services/**/src/**/*.test.ts\" \"docs/**/*.test.ts\"",
-    "loadgen": "node --import tsx services/storefront/src/loadgen.ts"
+    "loadgen": "node --import tsx services/storefront/src/loadgen-server.ts"
   },
   "devDependencies": {
     "@types/node": "25.9.1",

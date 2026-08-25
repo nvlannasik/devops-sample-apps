@@ -4,11 +4,21 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { loadLoadgenConfig, pickAction, runLoad } from "./loadgen.js";
 
-test("the defaults are modest enough to run on a laptop", () => {
+test("the defaults are modest enough to run on a laptop, and idle until asked", () => {
   const c = loadLoadgenConfig({ TARGET_URL: "http://localhost:3000" });
   assert.equal(c.rps, 5);
+  assert.equal(c.concurrency, 1);
   assert.equal(c.durationSeconds, 0);
   assert.equal(c.checkoutRatio, 0.3);
+  assert.equal(c.autostart, false, "the pod must come up idle — the button decides");
+});
+
+test("concurrency and autostart are readable from the environment", () => {
+  const c = loadLoadgenConfig({ TARGET_URL: "http://localhost:3000", LOADGEN_CONCURRENCY: "8", LOADGEN_AUTOSTART: "true" });
+  assert.equal(c.concurrency, 8);
+  assert.equal(c.autostart, true);
+  assert.throws(() => loadLoadgenConfig({ TARGET_URL: "http://localhost:3000", LOADGEN_CONCURRENCY: "0" }), /LOADGEN_CONCURRENCY/);
+  assert.throws(() => loadLoadgenConfig({ TARGET_URL: "http://localhost:3000", LOADGEN_CONCURRENCY: "101" }), /LOADGEN_CONCURRENCY/);
 });
 
 test("TARGET_URL is required and must be a URL", () => {
