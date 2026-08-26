@@ -1,5 +1,5 @@
 import { CATALOG } from "@sample-app/contracts";
-import { optBool, optInt, optNumber, requireUrl, type EnvSource } from "@sample-app/platform";
+import { optBool, optInt, optNumber, optStr, requireUrl, type EnvSource } from "@sample-app/platform";
 
 /** Bounds shared by the environment loader and the control form, so both refuse the same values. */
 export const RPS_BOUNDS = { min: 1, max: 10_000 } as const;
@@ -13,6 +13,8 @@ export interface LoadgenConfig {
   durationSeconds: number;
   checkoutRatio: number;
   autostart: boolean;
+  uiPassword: string | null;
+  uiCookieSecure: boolean;
 }
 
 export function loadLoadgenConfig(env: EnvSource): LoadgenConfig {
@@ -28,6 +30,13 @@ export function loadLoadgenConfig(env: EnvSource): LoadgenConfig {
     // Off by default: the pod comes up idle and waits for the button. Set it to reproduce the
     // old run-on-start CLI behaviour, locally or for a load that must exist before anyone looks.
     autostart: optBool(env, "LOADGEN_AUTOSTART", false),
+    // Unset means the control page serves 503 rather than serving the Start button to anyone
+    // who finds the URL. See loadgen-control.ts.
+    uiPassword: optStr(env, "LOADGEN_UI_PASSWORD", "") || null,
+    // Opt-out, not opt-in: a Secure cookie is dropped in silence over plain HTTP, and the
+    // symptom — a login form that keeps reappearing — points nowhere near the cause. Browsers
+    // exempt localhost, so a port-forward needs no change; only a plain-HTTP hostname does.
+    uiCookieSecure: optBool(env, "LOADGEN_UI_COOKIE_SECURE", true),
   };
 }
 

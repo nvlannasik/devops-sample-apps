@@ -1,5 +1,10 @@
 # Local stack. Mirrors the deployment contract: one migration pass, then four services.
 
+# One value, two readers. Set here so the default local run exercises the AUTHENTICATED path:
+# a stack that only ever works with auth off is a stack where nobody finds out the token was
+# never wired until it is exposed.
+x-gateway-token: &gateway-token "local-gateway-token"
+
 # The connection, written once. Three services read it, and a fourth would too — three copies
 # of the same host and password is how a local stack ends up half-pointed at the wrong database.
 x-db-env: &db-env
@@ -74,6 +79,7 @@ services:
     environment:
       ORDERS_API_URL: http://orders-api:3000
       WORKER_URL: http://settlement-worker:3001
+      GATEWAY_AUTH_TOKEN: *gateway-token
       SERVICE_VERSION: local
       LOG_LEVEL: debug
       PORT: "3000"
@@ -89,10 +95,34 @@ services:
       dockerfile: services/storefront/Dockerfile
     environment:
       GATEWAY_URL: http://checkout-gateway:3000
+      GATEWAY_AUTH_TOKEN: *gateway-token
       SERVICE_VERSION: local
       LOG_LEVEL: debug
       PORT: "3000"
+      # Followed by a browser, so it is the published port, never the compose service name.
+      LOADGEN_UI_URL: http://localhost:8090
     ports:
       - "8080:3000"
     depends_on:
       - checkout-gateway
+
+  # Same image as the storefront, different entry point. Comes up idle and drives nothing until
+  # the control page says so.
+  loadgen:
+    build:
+      context: .
+      dockerfile: services/storefront/Dockerfile
+    command: ["node", "services/storefront/dist/loadgen-server.js"]
+    environment:
+      TARGET_URL: http://storefront:3000
+      SERVICE_VERSION: local
+      LOG_LEVEL: debug
+      PORT: "3000"
+      LOADGEN_UI_PASSWORD: local-demo
+      # Plain HTTP on a published port: a Secure cookie would be dropped in silence and the
+      # login form would just keep reappearing.
+      LOADGEN_UI_COOKIE_SECURE: "false"
+    ports:
+      - "8090:3000"
+    depends_on:
+      - storefront

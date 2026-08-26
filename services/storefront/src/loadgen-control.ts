@@ -8,7 +8,18 @@
  * it is needed most.
  */
 import type http from "node:http";
-import { sendHtml, type Route } from "@sample-app/platform";
+import { sendHtml, type Route, type RouteHandler } from "@sample-app/platform";
+import {
+  LoginThrottle,
+  SESSION_COOKIE,
+  checkPassword,
+  clearedCookie,
+  cookieValue,
+  mintSession,
+  safeNext,
+  sessionCookie,
+  verifySession,
+} from "./auth.js";
 import {
   CONCURRENCY_BOUNDS,
   RPS_BOUNDS,
@@ -77,8 +88,10 @@ button:hover { background:var(--signal); }
 button.stop { background:transparent; color:var(--fail); border:1px solid var(--fail); }
 button.stop:hover:enabled { background:var(--fail); color:var(--ink); }
 button:disabled { opacity:0.35; cursor:not-allowed; }
-.actions { margin-top:14px; }
-.actions form { margin:0; max-width:200px; }
+.actions { display:flex; gap:10px; margin-top:14px; }
+.actions form { margin:0; max-width:200px; flex:1; }
+button.quiet { background:transparent; color:var(--muted); border:1px solid var(--line); }
+button.quiet:hover { background:transparent; color:var(--text); border-color:var(--signal); }
 .muted { color:var(--muted); }
 .detail { color:var(--muted); font:12px/1.5 var(--mono); }
 .error { border-left:3px solid var(--fail); padding-left:14px; margin-bottom:18px; }
@@ -174,6 +187,7 @@ ${field("durationSeconds", "Duration (0 = forever)", form.durationSeconds, `type
   </form>
   <div class="actions">
     <form method="post" action="/control/stop"><button class="stop" type="submit" ${state.running ? "" : "disabled"}>Stop</button></form>
+    <form method="post" action="/logout"><button class="quiet" type="submit">Sign out</button></form>
   </div>
   <p class="detail note">Concurrency is how many requests are in flight at once. One worker never
   makes a serialised server queue, so <code>SSR_CONCURRENCY=1</code> and <code>DB_POOL_MAX=1</code>
@@ -183,13 +197,51 @@ ${field("durationSeconds", "Duration (0 = forever)", form.durationSeconds, `type
   );
 }
 
+export function loginPage(opts: { next?: string; error?: string } = {}): string {
+  return shell(
+    "Sign in — load generator",
+    `${opts.error ? `<div class="card error"><p>${esc(opts.error)}</p></div>` : ""}
+<h2>Sign in</h2>
+<div class="card">
+  <form class="controls" method="post" action="/login">
+    <!-- safeNext again, not only at the route: this value is attacker-supplied and the function
+         must not depend on every caller having remembered to sanitise it. -->
+    <input type="hidden" name="next" value="${esc(safeNext(opts.next))}">
+    <div><label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required></div>
+    <div><button type="submit">Sign in</button></div>
+  </form>
+  <p class="detail note">This page starts real traffic against the cluster. It is not a viewer.</p>
+</div>`,
+    null,
+  );
+}
+
+export function unavailablePage(): string {
+  return shell(
+    "Unavailable — load generator",
+    `<h2>Unavailable</h2>
+<div class="card error">
+  <p><code>LOADGEN_UI_PASSWORD</code> is not set, so this page cannot verify who is asking. It
+  will not serve an unauthenticated button that puts load on the cluster. Set the variable to
+  enable sign-in.</p>
+</div>`,
+    null,
+  );
+}
+
 export interface ControlRouteDeps {
   runner: LoadRunner;
   targetUrl: string;
   defaults: RunSettings;
+  /** Null disables the page entirely: it serves 503 rather than serving Start to anyone. */
+  password: string | null;
+  cookieSecure: boolean;
 }
 
 export function createControlRoutes(deps: ControlRouteDeps): Route[] {
+  const throttle = new LoginThrottle();
+
   const render = (res: http.ServerResponse, status: number, live: boolean, error?: string): void => {
     sendHtml(res, status, controlPage({
       state: deps.runner.state(),
@@ -200,16 +252,98 @@ export function createControlRoutes(deps: ControlRouteDeps): Route[] {
     }));
   };
 
+  const authed = (req: http.IncomingMessage): boolean =>
+    verifySession(cookieValue(req.headers.cookie, SESSION_COOKIE), deps.password ?? undefined);
+
+  /**
+   * Wraps every route that can read or change the run. `/healthz`, `/readyz`, `/metrics` and
+   * `/stats` are served by createApp and never reach this list, so a missing password can
+   * never take the pod out of service — it only closes the page.
+   */
+  const guard = (handler: RouteHandler): RouteHandler => async (ctx) => {
+    if (!deps.password) {
+      sendHtml(ctx.res, 503, unavailablePage());
+      return;
+    }
+    if (!authed(ctx.req)) {
+      const next = ctx.url.pathname + ctx.url.search;
+      ctx.res.writeHead(303, { location: `/login?next=${encodeURIComponent(safeNext(next))}` });
+      ctx.res.end();
+      return;
+    }
+    await handler(ctx);
+  };
+
   return [
     {
       method: "GET",
       pattern: "/",
-      handler: async ({ res, url }) => render(res, 200, isLive(url)),
+      handler: guard(async ({ res, url }) => render(res, 200, isLive(url))),
+    },
+    {
+      method: "GET",
+      pattern: "/login",
+      handler: async ({ res, req, url }) => {
+        if (!deps.password) {
+          sendHtml(res, 503, unavailablePage());
+          return;
+        }
+        const next = safeNext(url.searchParams.get("next"));
+        // Already signed in: the form would re-ask for a password the browser is holding.
+        if (authed(req)) {
+          res.writeHead(303, { location: next });
+          res.end();
+          return;
+        }
+        sendHtml(res, 200, loginPage({ next }));
+      },
+    },
+    {
+      method: "POST",
+      pattern: "/login",
+      handler: async ({ res, req, readBody }) => {
+        if (!deps.password) {
+          sendHtml(res, 503, unavailablePage());
+          return;
+        }
+        // The socket address, not X-Forwarded-For: that header is written by whoever is
+        // calling, which would make the throttle decorative. Behind a proxy every client
+        // shares one bucket, which still throttles the guessing this exists to stop.
+        const key = req.socket.remoteAddress ?? "unknown";
+        const waitMs = throttle.retryAfterMs(key);
+        if (waitMs > 0) {
+          sendHtml(res, 429, loginPage({ error: `Too many sign-in attempts. Try again in ${Math.ceil(waitMs / 1000)}s.` }));
+          return;
+        }
+        const form = parseForm(await readBody());
+        const next = safeNext(form["next"]);
+        if (!checkPassword(form["password"] ?? "", deps.password)) {
+          throttle.fail(key);
+          sendHtml(res, 401, loginPage({ error: "That password is not right. Check it and try again.", next }));
+          return;
+        }
+        throttle.succeed(key);
+        res.writeHead(303, {
+          location: next,
+          "set-cookie": sessionCookie(mintSession(deps.password), deps.cookieSecure),
+        });
+        res.end();
+      },
+    },
+    {
+      method: "POST",
+      pattern: "/logout",
+      handler: async ({ res }) => {
+        // Unconditional: signing out an already-signed-out browser is the same outcome, and
+        // refusing would only confuse someone whose session had just expired.
+        res.writeHead(303, { location: "/login", "set-cookie": clearedCookie(deps.cookieSecure) });
+        res.end();
+      },
     },
     {
       method: "POST",
       pattern: "/control/start",
-      handler: async ({ res, readBody }) => {
+      handler: guard(async ({ res, readBody }) => {
         let settings: RunSettings;
         try {
           settings = parseSettings(parseForm(await readBody()));
@@ -224,16 +358,16 @@ export function createControlRoutes(deps: ControlRouteDeps): Route[] {
         // POST/redirect/GET, like the storefront's checkout: a refresh must not re-submit.
         res.writeHead(303, { location: "/" });
         res.end();
-      },
+      }),
     },
     {
       method: "POST",
       pattern: "/control/stop",
-      handler: async ({ res }) => {
+      handler: guard(async ({ res }) => {
         await deps.runner.stop();
         res.writeHead(303, { location: "/" });
         res.end();
-      },
+      }),
     },
   ];
 }

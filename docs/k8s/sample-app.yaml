@@ -48,6 +48,17 @@ stringData:
   # falling back to an unencrypted connection.
   DB_SSL_MODE: disable
 ---
+# Read by checkout-gateway (which enforces it) and by storefront (which presents it). The value
+# means nothing on its own and everything in agreement: change it in one place and every
+# checkout starts returning 401.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: sample-app-gateway
+  namespace: sample-app
+stringData:
+  GATEWAY_AUTH_TOKEN: CHANGEME
+---
 # Runs once per release, BEFORE the app rollout. orders-api and settlement-worker refuse to
 # boot against an un-migrated schema unless MIGRATION_REQUIRED=false.
 # Re-running is safe: the runner takes advisory lock 4927313, so concurrent Jobs serialise.
@@ -115,6 +126,18 @@ spec:
               value: dev
             - name: GATEWAY_URL
               value: http://checkout-gateway:3000
+            - name: GATEWAY_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: sample-app-gateway
+                  key: GATEWAY_AUTH_TOKEN
+            # Puts a "Load generator" button in the storefront header. A BROWSER follows this,
+            # so it must be an address a browser can reach — the Ingress host, or the
+            # port-forward you use for a demo. The cluster-internal Service DNS resolves to
+            # nothing outside the cluster, and the button would 404 for every visitor.
+            # Unset hides the button entirely, which is the right state when not demoing.
+            - name: LOADGEN_UI_URL
+              value: ""
           readinessProbe:
             httpGet: { path: /readyz, port: http }
             periodSeconds: 10
@@ -180,6 +203,14 @@ spec:
               value: dev
             - name: ORDERS_API_URL
               value: http://orders-api:3000
+            # Unset leaves /api open to anyone who can reach the port. The gateway logs a
+            # warning at boot when that happens; it does not refuse to start, because a local
+            # stack legitimately runs without it.
+            - name: GATEWAY_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: sample-app-gateway
+                  key: GATEWAY_AUTH_TOKEN
             - name: WORKER_URL
               value: http://settlement-worker:3001
           readinessProbe:
@@ -407,6 +438,17 @@ spec:
               value: "0.3"   # keep above 0, or ORDER_RESPONSE_VERSION=2 has nothing to break
             - name: LOADGEN_AUTOSTART
               value: "false" # true = start driving at boot, without touching the page
+            # Required. Unset and the page serves 503 rather than an anonymous Start button.
+            # Put it in a Secret in any cluster anyone else can reach.
+            - name: LOADGEN_UI_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: sample-app-loadgen
+                  key: LOADGEN_UI_PASSWORD
+            # Leave true behind TLS. Set false only for a plain-HTTP hostname: a Secure cookie
+            # is dropped there in silence and the login form just reappears forever.
+            - name: LOADGEN_UI_COOKIE_SECURE
+              value: "true"
           readinessProbe:
             httpGet: { path: /readyz, port: http }
             periodSeconds: 10
@@ -417,8 +459,20 @@ spec:
             requests: { cpu: 50m, memory: 96Mi }
             limits: { memory: 256Mi }
 ---
-# No Ingress, ever. This Service fronts an unauthenticated "generate load" button; reach it
-# with port-forward only.
+# Replace CHANGEME before this reaches any cluster someone else can see. The page behind this
+# password starts real traffic; it is not a viewer.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: sample-app-loadgen
+  namespace: sample-app
+stringData:
+  LOADGEN_UI_PASSWORD: CHANGEME
+---
+# Exposing this is a deliberate choice, not a default. The page is behind a shared password with
+# a signed session cookie and a failed-login throttle, and it serves 503 rather than a Start
+# button if that password is unset — but it is still a control surface that puts load on the
+# cluster. Put TLS in front of it, or keep it on port-forward.
 apiVersion: v1
 kind: Service
 metadata:

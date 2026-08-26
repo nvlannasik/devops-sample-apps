@@ -4,6 +4,14 @@ import { loadConfig } from "./config.js";
 
 const base = { GATEWAY_URL: "http://checkout-gateway:3000" };
 
+test("the load generator link is off unless LOADGEN_UI_URL is set", () => {
+  assert.equal(loadConfig({ GATEWAY_URL: "http://checkout-gateway:3000" }).loadgenUrl, null);
+  assert.equal(
+    loadConfig({ GATEWAY_URL: "http://checkout-gateway:3000", LOADGEN_UI_URL: "https://loadgen.example.com" }).loadgenUrl,
+    "https://loadgen.example.com",
+  );
+});
+
 test("every documented default is applied", () => {
   const c = loadConfig(base);
   assert.equal(c.gatewayTimeoutMs, 2000);

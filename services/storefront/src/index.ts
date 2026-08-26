@@ -29,7 +29,14 @@ const tracing = initTracing({
 const metrics = createMetrics({ service: SERVICE, version: config.serviceVersion, commit: config.serviceVersion });
 logger.info("starting", { config: redactConfig({ ...config }) });
 
-const client = createHttpClient({ service: SERVICE, metrics, timeoutMs: config.gatewayTimeoutMs });
+const client = createHttpClient({
+  service: SERVICE,
+  metrics,
+  timeoutMs: config.gatewayTimeoutMs,
+  // Attached by the client, not by each call site: a credential the gateway always requires
+  // must not be something the next route someone adds can forget.
+  ...(config.gatewayAuthToken ? { defaultHeaders: { authorization: `Bearer ${config.gatewayAuthToken}` } } : {}),
+});
 const stats = new RollingStats();
 const semaphore = createSemaphore(config.ssrConcurrency);
 
@@ -47,6 +54,7 @@ const server = createApp({
     gatewayUrl: config.gatewayUrl,
     assetVersion: config.assetVersion,
     assetCacheSeconds: config.assetCacheSeconds,
+    loadgenUrl: config.loadgenUrl,
   }),
   readiness: async () => {
     try {

@@ -13,7 +13,7 @@
 
 ```bash
 npm run build:libs          # compile @sample-app/contracts and @sample-app/platform
-npm test                    # build:libs + run all *.test.ts files (228 tests)
+npm test                    # build:libs + run all *.test.ts files (261 tests)
 npm run build               # compile everything including services
 ```
 

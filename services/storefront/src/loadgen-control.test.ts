@@ -4,7 +4,7 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { createApp, createLogger, createMetrics, loadCommonConfig, RollingStats } from "@sample-app/platform";
 import { createLoadRunner, type LoadRunner, type RunSettings } from "./loadgen.js";
-import { controlPage, createControlRoutes, parseSettings } from "./loadgen-control.js";
+import { controlPage, createControlRoutes, loginPage, parseSettings } from "./loadgen-control.js";
 
 const DEFAULTS: RunSettings = { rps: 5, concurrency: 1, checkoutRatio: 0.3, durationSeconds: 0 };
 
@@ -149,14 +149,26 @@ test("stop is safe on an idle runner", async () => {
   assert.equal(runner.state().running, false);
 });
 
-async function withControl<T>(runner: LoadRunner, fn: (base: string) => Promise<T>): Promise<T> {
+const PASSWORD = "correct horse battery staple";
+
+async function withControl<T>(
+  runner: LoadRunner,
+  fn: (base: string) => Promise<T>,
+  password: string | null = PASSWORD,
+): Promise<T> {
   const server = createApp({
     service: "loadgen",
     config: loadCommonConfig({}),
     metrics: createMetrics({ service: "loadgen", version: "test", commit: "test" }),
     logger: createLogger({ service: "loadgen", version: "test", level: "error", write: () => {} }),
     stats: new RollingStats(),
-    routes: createControlRoutes({ runner, targetUrl: "http://storefront:3000", defaults: DEFAULTS }),
+    routes: createControlRoutes({
+      runner,
+      targetUrl: "http://storefront:3000",
+      defaults: DEFAULTS,
+      password,
+      cookieSecure: false,
+    }),
     readiness: async () => ({ ok: true }),
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -169,17 +181,33 @@ async function withControl<T>(runner: LoadRunner, fn: (base: string) => Promise<
   }
 }
 
-const post = (base: string, path: string, body: Record<string, string>): Promise<Response> =>
+const post = (base: string, path: string, body: Record<string, string>, cookie?: string): Promise<Response> =>
   fetch(`${base}${path}`, {
     method: "POST",
     redirect: "manual",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      ...(cookie ? { cookie } : {}),
+    },
     body: new URLSearchParams(body).toString(),
   });
 
+/** Signs in the way a browser does and returns the cookie it would then carry. */
+async function signIn(base: string): Promise<string> {
+  const res = await post(base, "/login", { password: PASSWORD, next: "/" });
+  assert.equal(res.status, 303, "sign-in did not succeed");
+  const setCookie = res.headers.get("set-cookie");
+  assert.ok(setCookie, "sign-in set no cookie");
+  return setCookie.split(";")[0]!;
+}
+
+const get = (base: string, path: string, cookie?: string): Promise<Response> =>
+  fetch(`${base}${path}`, { redirect: "manual", headers: cookie ? { cookie } : {} });
+
 test("GET / renders the control page with the env defaults while idle", async () => {
   await withControl(createLoadRunner("http://127.0.0.1:1"), async (base) => {
-    const res = await fetch(base);
+    const cookie = await signIn(base);
+    const res = await get(base, "/", cookie);
     const html = await res.text();
     assert.equal(res.status, 200);
     assert.match(html, /value="5"/, "the rps field is seeded from the defaults");
@@ -192,13 +220,14 @@ test("POST /control/start starts the run and redirects — a refresh must not re
   await withTarget(async (target) => {
     const runner = createLoadRunner(target);
     await withControl(runner, async (base) => {
-      const res = await post(base, "/control/start", form({ concurrency: "2" }));
+      const cookie = await signIn(base);
+      const res = await post(base, "/control/start", form({ concurrency: "2" }), cookie);
       assert.equal(res.status, 303);
       assert.equal(res.headers.get("location"), "/");
       assert.equal(runner.state().running, true);
       assert.deepEqual(runner.state().settings, { rps: 10, concurrency: 2, checkoutRatio: 0.5, durationSeconds: 0 });
 
-      const page = await (await fetch(base)).text();
+      const page = await (await get(base, "/", cookie)).text();
       assert.match(page, /state-running/);
       assert.match(page, /http-equiv="refresh"/, "a running page refreshes itself");
     });
@@ -210,11 +239,12 @@ test("POST /control/stop returns the runner to idle", async () => {
   await withTarget(async (target) => {
     const runner = createLoadRunner(target);
     await withControl(runner, async (base) => {
-      await post(base, "/control/start", form());
-      const res = await post(base, "/control/stop", {});
+      const cookie = await signIn(base);
+      await post(base, "/control/start", form(), cookie);
+      const res = await post(base, "/control/stop", {}, cookie);
       assert.equal(res.status, 303);
       assert.equal(runner.state().running, false);
-      assert.doesNotMatch(await (await fetch(base)).text(), /http-equiv="refresh"/, "an idle page has nothing to poll for");
+      assert.doesNotMatch(await (await get(base, "/", cookie)).text(), /http-equiv="refresh"/, "an idle page has nothing to poll for");
     });
   });
 });
@@ -222,12 +252,93 @@ test("POST /control/stop returns the runner to idle", async () => {
 test("a bad setting renders 400 with the reason and never starts a run", async () => {
   const runner = createLoadRunner("http://127.0.0.1:1");
   await withControl(runner, async (base) => {
-    const res = await post(base, "/control/start", form({ concurrency: "500" }));
+    const cookie = await signIn(base);
+    const res = await post(base, "/control/start", form({ concurrency: "500" }), cookie);
     const html = await res.text();
     assert.equal(res.status, 400);
     assert.match(html, /concurrency must be a whole number between 1 and 100/);
     assert.equal(runner.state().running, false);
   });
+});
+
+// The page is not a viewer: everything behind the gate can put load on a real cluster.
+test("every route that can read or change the run demands a session", async () => {
+  const runner = createLoadRunner("http://127.0.0.1:1");
+  await withControl(runner, async (base) => {
+    for (const [method, path] of [["GET", "/"], ["POST", "/control/start"], ["POST", "/control/stop"]] as const) {
+      const res = method === "GET" ? await get(base, path) : await post(base, path, form());
+      assert.equal(res.status, 303, `${method} ${path} was not gated`);
+      assert.match(res.headers.get("location") ?? "", /^\/login\?next=/, `${method} ${path} redirected somewhere odd`);
+    }
+    assert.equal(runner.state().running, false, "an unauthenticated POST started a run");
+  });
+});
+
+test("the path survives the sign-in, so a bookmark still lands where it pointed", async () => {
+  await withControl(createLoadRunner("http://127.0.0.1:1"), async (base) => {
+    const res = await get(base, "/?live=off");
+    assert.equal(res.headers.get("location"), `/login?next=${encodeURIComponent("/?live=off")}`);
+  });
+});
+
+// A misconfigured page must close, never open. Serving Start anonymously because a secret is
+// missing is the one outcome worth an outage on this port.
+test("no password configured serves 503 and says why — never an anonymous Start button", async () => {
+  const runner = createLoadRunner("http://127.0.0.1:1");
+  await withControl(runner, async (base) => {
+    for (const [method, path] of [["GET", "/"], ["GET", "/login"], ["POST", "/login"], ["POST", "/control/start"]] as const) {
+      const res = method === "GET" ? await get(base, path) : await post(base, path, { password: "anything" });
+      assert.equal(res.status, 503, `${method} ${path} did not fail closed`);
+      assert.match(await res.text(), /LOADGEN_UI_PASSWORD/);
+    }
+    assert.equal(runner.state().running, false);
+  }, null);
+});
+
+// The probes are served by createApp and never reach the guard, so a missing password closes
+// the page without taking the pod out of service.
+test("the probes stay open when the page is closed", async () => {
+  await withControl(createLoadRunner("http://127.0.0.1:1"), async (base) => {
+    assert.equal((await get(base, "/healthz")).status, 200);
+    assert.equal((await get(base, "/readyz")).status, 200);
+    assert.equal((await get(base, "/metrics")).status, 200);
+  }, null);
+});
+
+test("a wrong password is refused, and the throttle stops a guessing run", async () => {
+  await withControl(createLoadRunner("http://127.0.0.1:1"), async (base) => {
+    for (let i = 0; i < 10; i++) {
+      const res = await post(base, "/login", { password: `guess-${i}`, next: "/" });
+      assert.equal(res.status, 401, `attempt ${i} was not refused`);
+    }
+    const blocked = await post(base, "/login", { password: "guess-11", next: "/" });
+    assert.equal(blocked.status, 429);
+    assert.match(await blocked.text(), /Too many sign-in attempts/);
+    // Even the correct password waits out the window — the throttle is on the endpoint.
+    assert.equal((await post(base, "/login", { password: PASSWORD, next: "/" })).status, 429);
+  });
+});
+
+test("signing out clears the cookie and the session stops working", async () => {
+  await withControl(createLoadRunner("http://127.0.0.1:1"), async (base) => {
+    const cookie = await signIn(base);
+    assert.equal((await get(base, "/", cookie)).status, 200);
+    const out = await post(base, "/logout", {}, cookie);
+    assert.equal(out.status, 303);
+    assert.match(out.headers.get("set-cookie") ?? "", /Max-Age=0/);
+  });
+});
+
+test("the login page never carries the password back into the markup", async () => {
+  await withControl(createLoadRunner("http://127.0.0.1:1"), async (base) => {
+    const html = await (await post(base, "/login", { password: "hunter2", next: "/" })).text();
+    assert.doesNotMatch(html, /hunter2/, "the rejected password was echoed into the page");
+  });
+});
+
+test("the sign-in redirect cannot be pointed off this origin", () => {
+  const html = loginPage({ next: "https://evil.example.com" });
+  assert.doesNotMatch(html, /evil\.example\.com/);
 });
 
 test("the control page carries no client JavaScript — the same rule the storefront keeps", () => {

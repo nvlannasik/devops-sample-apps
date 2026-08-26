@@ -62,6 +62,7 @@ const server = createApp({
     selfStats: () => ({ service: SERVICE, version: config.serviceVersion, ...stats.snapshot() }),
     ordersApiUrl: config.ordersApiUrl,
     workerUrl: config.workerUrl,
+    authToken: config.authToken,
   }),
   readiness,
 });
@@ -72,5 +73,11 @@ installShutdown({
   logger,
   tasks: tracing ? [{ name: "tracing", run: () => tracing.shutdown() }] : [],
 });
+
+if (!config.authToken) {
+  logger.warn(
+    "GATEWAY_AUTH_TOKEN not set — /api is UNAUTHENTICATED. Anyone who can reach this port can place orders and read the chain topology. Set it here and on the storefront.",
+  );
+}
 
 await listen(server, config.port, logger);

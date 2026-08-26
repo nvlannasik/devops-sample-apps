@@ -22,6 +22,8 @@ export interface RouteDeps {
   gatewayUrl: string;
   assetVersion: string;
   assetCacheSeconds: number;
+  /** Absolute and browser-reachable, or null to hide the header link. */
+  loadgenUrl: string | null;
 }
 
 export function parseForm(body: string): Record<string, string> {
@@ -70,7 +72,7 @@ export function createRoutes(deps: RouteDeps): Route[] {
     {
       method: "GET",
       pattern: "/",
-      handler: page(deps, async ({ res }) => sendHtml(res, 200, catalogPage(href()))),
+      handler: page(deps, async ({ res }) => sendHtml(res, 200, catalogPage(href(), deps.loadgenUrl))),
     },
     {
       method: "POST",
@@ -97,7 +99,7 @@ export function createRoutes(deps: RouteDeps): Route[] {
           "checkout-gateway",
           `${deps.gatewayUrl}/api/orders/${encodeURIComponent(params["id"]!)}`,
         );
-        sendHtml(res, 200, orderPage(order, href(), isLive(url)));
+        sendHtml(res, 200, orderPage(order, href(), isLive(url), deps.loadgenUrl));
       }),
     },
     {
@@ -116,7 +118,7 @@ export function createRoutes(deps: RouteDeps): Route[] {
             checkedAt: new Date().toISOString(),
           };
         }
-        sendHtml(res, 200, statusPage({ ...chain, hops: [self, ...chain.hops] }, href(), isLive(url)));
+        sendHtml(res, 200, statusPage({ ...chain, hops: [self, ...chain.hops] }, href(), isLive(url), deps.loadgenUrl));
       }),
     },
     {

@@ -1,6 +1,7 @@
 import type { OrderV1, ServiceStats } from "@sample-app/contracts";
 import {
   DownstreamError,
+  authorized,
   sendJson,
   statusForDownstream,
   traceContext,
@@ -21,6 +22,8 @@ export interface RouteDeps {
   selfStats: () => ServiceStats;
   ordersApiUrl: string;
   workerUrl: string;
+  /** Null leaves /api open, which is what a local stack with no token configured wants. */
+  authToken: string | null;
 }
 
 const SERVICE = "checkout-gateway";
@@ -38,6 +41,27 @@ export function assertOrderV1(payload: unknown): OrderV1 {
     );
   }
   return order as OrderV1;
+}
+
+/**
+ * Bearer-token gate for `/api`. Applied to every route in this file, including chain-status:
+ * that response names each hop and its error rate, which is exactly the reconnaissance an
+ * exposed endpoint should not hand out for free.
+ *
+ * The probes and `/metrics` are served by createApp and never reach this list, so the gate
+ * cannot take the pod out of service or blind Prometheus. The consequence is that they are open
+ * on this port — put only `/api` behind the Ingress.
+ */
+function authorize(deps: RouteDeps, handler: (ctx: RouteContext) => Promise<void>) {
+  return async (ctx: RouteContext): Promise<void> => {
+    if (!authorized(ctx.req.headers.authorization, deps.authToken)) {
+      // No detail: which half of the credential was wrong is not the caller's business.
+      ctx.res.setHeader("www-authenticate", "Bearer");
+      sendJson(ctx.res, 401, { error: "unauthorized" });
+      return;
+    }
+    await handler(ctx);
+  };
 }
 
 function guard(deps: RouteDeps, handler: (ctx: RouteContext) => Promise<void>) {
@@ -63,17 +87,17 @@ export function createRoutes(deps: RouteDeps): Route[] {
     {
       method: "POST",
       pattern: "/api/checkout",
-      handler: guard(deps, async ({ res, readBody }) => {
+      handler: authorize(deps, guard(deps, async ({ res, readBody }) => {
         const body = await readBody();
         const created = assertOrderV1(await deps.client.postJson("orders-api", `${deps.ordersApiUrl}/orders`, JSON.parse(body)));
         deps.logger.info("checkout forwarded", { order_id: created.id });
         sendJson(res, 201, created);
-      }),
+      })),
     },
     {
       method: "GET",
       pattern: "/api/orders/:id",
-      handler: guard(deps, async ({ res, params }) => {
+      handler: authorize(deps, guard(deps, async ({ res, params }) => {
         const id = params["id"]!;
         const cached = deps.cache.get(id);
         if (cached) {
@@ -85,20 +109,22 @@ export function createRoutes(deps: RouteDeps): Route[] {
         const order = assertOrderV1(await deps.client.getJson("orders-api", `${deps.ordersApiUrl}/orders/${encodeURIComponent(id)}`));
         deps.cache.set(id, order);
         sendJson(res, 200, order);
-      }),
+      })),
     },
     {
       method: "GET",
       pattern: "/api/chain-status",
-      handler: async ({ res }) => {
-        // Never guarded and never 500: a status page that dies during an incident is worthless.
+      // Authorized like the rest — it names every hop and its error rate — but never wrapped in
+      // guard(): a status page that 500s during an incident is worthless, which is the whole
+      // reason this route swallows its own downstream failures instead.
+      handler: authorize(deps, async ({ res }) => {
         sendJson(res, 200, await buildChainStatus({
           client: deps.client,
           selfStats: deps.selfStats,
           ordersApiUrl: deps.ordersApiUrl,
           workerUrl: deps.workerUrl,
         }));
-      },
+      }),
     },
   ];
 }

@@ -4,7 +4,7 @@ Persistent context for agentic sessions. Update this when a non-obvious decision
 
 ## Current state (2026-08-25)
 
-All 22 tasks complete. 228 tests passing (208 without DB, 228 with DB).
+All 22 tasks complete. 261 tests passing (241 without DB, 261 with DB).
 
 ## Architectural decisions
 
@@ -58,6 +58,32 @@ the tests import.
   the process the load is overwhelming.
 - The generator's pod is deliberately not scraped — its `http_client_*` series would be
   aggregated into `job="sample-app"`.
+- **The control page is guarded.** `services/storefront/src/auth.ts` is a port of
+  `devops-ai-agent/src/dashboard/auth.ts` — separate repos, no shared module, so it is a second
+  copy on purpose. One divergence: `SameSite=Lax` instead of `Strict`, because the storefront
+  links here from another origin and `Strict` withholds the cookie on exactly that navigation.
+  `Lax` still withholds it on cross-site POSTs, which is what guards Start and Stop.
+  `LOADGEN_UI_PASSWORD` unset serves 503; the probes never reach the gate, so a missing password
+  closes the page without taking the pod out of service.
+- `LOADGEN_UI_URL` on the storefront renders the header button. A browser follows it, so the
+  in-cluster Service DNS is the one value that cannot work there.
+
+### Two auth designs, on purpose
+- **`/api` on checkout-gateway**: a shared bearer token (`GATEWAY_AUTH_TOKEN`), set identically
+  on the gateway and the storefront. `authorized()` / `bearerToken()` / `timingSafeEqualStr()`
+  live in `@sample-app/platform`, mirroring the agent's `utils/auth`. Unset leaves `/api` open
+  with a boot warning, matching `ALERT_WEBHOOK_TOKEN` and `MCP_AUTH_TOKEN`.
+- **The load generator's control page**: a shared password with a signed session cookie.
+  A human fills in that form; the storefront cannot, which is the whole reason the gateway
+  gets a token instead.
+
+The token rides on `createHttpClient`'s `defaultHeaders`, not on each call site — a credential
+the callee always requires must not be forgettable by the next route someone adds.
+
+The gate lives in the gateway's route list, and `createApp` serves the probes and `/metrics`
+above it. That ordering is load-bearing: inverted, a missing token would take every pod out of
+service and blind Prometheus at once. It also means those paths are open on the same port, so
+only `/api` belongs behind an Ingress.
 
 ### Storefront pages: nothing moves when the data does
 The status page reloads every 2 seconds and the order page every 5, so the layout is built to

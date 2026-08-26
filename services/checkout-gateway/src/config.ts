@@ -1,4 +1,4 @@
-import { loadCommonConfig, optInt, requireUrl, type CommonConfig, type EnvSource } from "@sample-app/platform";
+import { loadCommonConfig, optInt, optStr, requireUrl, type CommonConfig, type EnvSource } from "@sample-app/platform";
 
 export interface GatewayConfig extends CommonConfig {
   ordersApiUrl: string;
@@ -6,6 +6,7 @@ export interface GatewayConfig extends CommonConfig {
   downstreamTimeoutMs: number;
   cacheTtlSeconds: number;
   cacheMaxEntries: number;
+  authToken: string | null;
 }
 
 export function loadConfig(env: EnvSource): GatewayConfig {
@@ -19,5 +20,7 @@ export function loadConfig(env: EnvSource): GatewayConfig {
     downstreamTimeoutMs: optInt(env, "DOWNSTREAM_TIMEOUT_MS", 2000, { min: 1 }),
     cacheTtlSeconds: optInt(env, "CACHE_TTL_SECONDS", 30, { min: 0 }),
     cacheMaxEntries: optInt(env, "CACHE_MAX_ENTRIES", 1000, { min: 1 }),
+    // Same value on the storefront. Unset leaves /api open — see the boot warning in index.ts.
+    authToken: optStr(env, "GATEWAY_AUTH_TOKEN", "") || null,
   };
 }
