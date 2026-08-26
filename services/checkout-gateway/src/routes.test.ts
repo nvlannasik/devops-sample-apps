@@ -34,6 +34,7 @@ async function withApp<T>(
   client: HttpClient,
   fn: (base: string, metrics: ReturnType<typeof createMetrics>) => Promise<T>,
   cacheTtlSeconds = 30,
+  authToken: string | null = null,
 ): Promise<T> {
   const logger = createLogger({ service: "checkout-gateway", version: "test", level: "error", write: () => {} });
   const metrics = createMetrics({ service: "checkout-gateway", version: "test", commit: "test" });
@@ -53,6 +54,7 @@ async function withApp<T>(
       selfStats: () => ({ service: "checkout-gateway", version: "test", p99Ms: null, errorRate: 0, requests: 0, windowSeconds: 60 }),
       ordersApiUrl: "http://orders-api:3000",
       workerUrl: "http://settlement-worker:3001",
+      authToken,
     }),
     readiness: async () => ({ ok: true }),
   });
@@ -178,4 +180,88 @@ test("GET /api/chain-status returns the aggregate and stays 200 with a dead hop"
     const chain = await res.json() as { hops: { name: string; state: string }[] };
     assert.equal(chain.hops.find((h) => h.name === "orders-api")!.state, "unreachable");
   });
+});
+const TOKEN = "s3rvice-t0ken";
+const auth = { authorization: `Bearer ${TOKEN}` };
+
+test("with no token configured /api stays open — a local stack needs no credential", async () => {
+  await withApp(stubClient({ get: () => chain }), async (base) => {
+    assert.equal((await fetch(`${base}/api/chain-status`)).status, 200);
+  });
+});
+
+test("every /api route demands the bearer token once one is configured", async () => {
+  await withApp(
+    stubClient({ get: () => orderV1, post: () => orderV1 }),
+    async (base) => {
+      const calls: Array<[string, RequestInit]> = [
+        [`${base}/api/chain-status`, {}],
+        [`${base}/api/orders/${orderV1.id}`, {}],
+        [`${base}/api/checkout`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }],
+      ];
+      for (const [url, init] of calls) {
+        const res = await fetch(url, init);
+        assert.equal(res.status, 401, `${url} was not gated`);
+        // The header is what tells a client this is a credential problem, not a bad request.
+        assert.match(res.headers.get("www-authenticate") ?? "", /Bearer/);
+        // No hint about the expected value, not even its length.
+        assert.deepEqual(await res.json(), { error: "unauthorized" });
+      }
+    },
+    30,
+    TOKEN,
+  );
+});
+
+test("a wrong or malformed credential is refused as firmly as none at all", async () => {
+  await withApp(
+    stubClient({ get: () => chain }),
+    async (base) => {
+      for (const header of [
+        { authorization: "Bearer wrong-token" },
+        { authorization: TOKEN },
+        { authorization: `Basic ${TOKEN}` },
+        { authorization: "Bearer " },
+      ]) {
+        const res = await fetch(`${base}/api/chain-status`, { headers: header });
+        assert.equal(res.status, 401, `accepted ${JSON.stringify(header)}`);
+      }
+      // Case-insensitive scheme, because RFC 7235 says so and clients take liberties.
+      assert.equal((await fetch(`${base}/api/chain-status`, { headers: { authorization: `bearer ${TOKEN}` } })).status, 200);
+    },
+    30,
+    TOKEN,
+  );
+});
+
+test("the correct token gets through to every route", async () => {
+  await withApp(
+    stubClient({ get: () => orderV1, post: () => orderV1 }),
+    async (base) => {
+      assert.equal((await fetch(`${base}/api/orders/${orderV1.id}`, { headers: auth })).status, 200);
+      const created = await fetch(`${base}/api/checkout`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...auth },
+        body: JSON.stringify({ customerId: "web-user", items: [{ sku: "sku-widget", qty: 1 }] }),
+      });
+      assert.equal(created.status, 201);
+    },
+    30,
+    TOKEN,
+  );
+});
+
+// The gate lives in the route list, and probes are served by createApp above it. If that ever
+// inverts, a missing token would take every pod out of service and blind Prometheus at once.
+test("probes and metrics stay open when /api is closed", async () => {
+  await withApp(
+    stubClient({}),
+    async (base) => {
+      for (const path of ["/healthz", "/readyz", "/metrics", "/stats"]) {
+        assert.equal((await fetch(`${base}${path}`)).status, 200, `${path} was gated`);
+      }
+    },
+    30,
+    TOKEN,
+  );
 });

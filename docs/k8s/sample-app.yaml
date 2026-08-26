@@ -48,6 +48,17 @@ stringData:
   # falling back to an unencrypted connection.
   DB_SSL_MODE: disable
 ---
+# Read by checkout-gateway (which enforces it) and by storefront (which presents it). The value
+# means nothing on its own and everything in agreement: change it in one place and every
+# checkout starts returning 401.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: sample-app-gateway
+  namespace: sample-app
+stringData:
+  GATEWAY_AUTH_TOKEN: CHANGEME
+---
 # Runs once per release, BEFORE the app rollout. orders-api and settlement-worker refuse to
 # boot against an un-migrated schema unless MIGRATION_REQUIRED=false.
 # Re-running is safe: the runner takes advisory lock 4927313, so concurrent Jobs serialise.
@@ -115,6 +126,11 @@ spec:
               value: dev
             - name: GATEWAY_URL
               value: http://checkout-gateway:3000
+            - name: GATEWAY_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: sample-app-gateway
+                  key: GATEWAY_AUTH_TOKEN
             # Puts a "Load generator" button in the storefront header. A BROWSER follows this,
             # so it must be an address a browser can reach — the Ingress host, or the
             # port-forward you use for a demo. The cluster-internal Service DNS resolves to
@@ -187,6 +203,14 @@ spec:
               value: dev
             - name: ORDERS_API_URL
               value: http://orders-api:3000
+            # Unset leaves /api open to anyone who can reach the port. The gateway logs a
+            # warning at boot when that happens; it does not refuse to start, because a local
+            # stack legitimately runs without it.
+            - name: GATEWAY_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: sample-app-gateway
+                  key: GATEWAY_AUTH_TOKEN
             - name: WORKER_URL
               value: http://settlement-worker:3001
           readinessProbe:

@@ -13,6 +13,8 @@ export interface StorefrontConfig extends CommonConfig {
    * not currently being demoed.
    */
   loadgenUrl: string | null;
+  /** Presented as a bearer token on every checkout-gateway call. Same value on both sides. */
+  gatewayAuthToken: string | null;
 }
 
 export function loadConfig(env: EnvSource): StorefrontConfig {
@@ -25,5 +27,7 @@ export function loadConfig(env: EnvSource): StorefrontConfig {
     assetCacheSeconds: optInt(env, "ASSET_CACHE_SECONDS", 3600, { min: 0 }),
     assetVersion: optStr(env, "ASSET_VERSION", common.serviceVersion),
     loadgenUrl: optStr(env, "LOADGEN_UI_URL", "") || null,
+    // The same value the gateway reads. Unset means the gateway is open, which a local stack is.
+    gatewayAuthToken: optStr(env, "GATEWAY_AUTH_TOKEN", "") || null,
   };
 }

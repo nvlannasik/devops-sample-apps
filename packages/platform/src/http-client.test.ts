@@ -116,3 +116,32 @@ test("statusForDownstream maps timeout to 504 and everything else to 502", () =>
   assert.equal(statusForDownstream(timeout), 504);
   assert.equal(statusForDownstream(status), 502);
 });
+test("defaultHeaders ride on every request, and a per-call header still wins", async () => {
+  const seen: Array<Record<string, string>> = [];
+  const server = http.createServer((req, res) => {
+    seen.push(req.headers as Record<string, string>);
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end("{}");
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const { port } = server.address() as AddressInfo;
+  const base = `http://127.0.0.1:${port}`;
+  try {
+    const client = createHttpClient({
+      service: "storefront",
+      metrics: createMetrics({ service: "storefront", version: "test", commit: "test" }),
+      timeoutMs: 1000,
+      defaultHeaders: { authorization: "Bearer default" },
+    });
+    await client.getJson("peer", base);
+    await client.postJson("peer", base, {});
+    await client.getJson("peer", base, { headers: { authorization: "Bearer override" } });
+
+    assert.equal(seen[0]?.authorization, "Bearer default", "GET dropped the default header");
+    assert.equal(seen[1]?.authorization, "Bearer default", "POST dropped the default header");
+    assert.equal(seen[2]?.authorization, "Bearer override");
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((r) => server.close(() => r()));
+  }
+});

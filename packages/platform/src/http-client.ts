@@ -36,6 +36,13 @@ export interface HttpClientDeps {
   metrics: Metrics;
   /** DOWNSTREAM_TIMEOUT_MS / GATEWAY_TIMEOUT_MS — the fault knob. */
   timeoutMs: number;
+  /**
+   * Sent on every request this client makes. A credential the callee always requires belongs
+   * here rather than at each call site: attached once it cannot be forgotten on the next route
+   * someone adds, and the failure mode of forgetting is a 401 in production, not a test failure.
+   * A per-call header of the same name still wins.
+   */
+  defaultHeaders?: Record<string, string>;
 }
 
 /**
@@ -86,16 +93,18 @@ export function createHttpClient(deps: HttpClientDeps): HttpClient {
     }
   };
 
+  const defaults = deps.defaultHeaders ?? {};
+
   return {
     getJson: (peer, url, opts = {}) =>
-      request(peer, url, { method: "GET", headers: { accept: "application/json", ...opts.headers } }, opts),
+      request(peer, url, { method: "GET", headers: { accept: "application/json", ...defaults, ...opts.headers } }, opts),
     postJson: (peer, url, body, opts = {}) =>
       request(
         peer,
         url,
         {
           method: "POST",
-          headers: { "content-type": "application/json", accept: "application/json", ...opts.headers },
+          headers: { "content-type": "application/json", accept: "application/json", ...defaults, ...opts.headers },
           body: JSON.stringify(body),
         },
         opts,

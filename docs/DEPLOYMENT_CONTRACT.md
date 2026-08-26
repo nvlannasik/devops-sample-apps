@@ -94,11 +94,41 @@ re-templating a connection string, and the boot log redacts it by key name rathe
 parsing a URL. An unknown `DB_SSL_MODE` fails at boot: falling back to `disable` would hand the
 operator an unencrypted connection they believe is encrypted.
 
+### API authentication
+
+`checkout-gateway` gates `/api` behind a bearer token. `GATEWAY_AUTH_TOKEN` is one value set
+identically on the gateway, which enforces it, and on the storefront, which presents it — the
+same shape as `MCP_AUTH_TOKEN` between the agent and the MCP server.
+
+A shared token rather than the session-and-login the load generator's control page uses: that
+page has a human at the other end, and these endpoints have the storefront, which cannot fill in
+a form.
+
+- **The token is attached by the storefront's HTTP client, not by each call site.** A credential
+  the callee always requires must not be something the next route someone adds can forget; the
+  failure mode of forgetting is a 401 in production, not a test failure.
+- **Unset leaves `/api` open**, and the gateway logs a warning at boot saying so. It does not
+  refuse to start, because a local stack legitimately runs without one — the compose file sets a
+  token anyway, so the default local run exercises the authenticated path.
+- **`/api/chain-status` is gated too.** It names every hop and its error rate, which is
+  reconnaissance an exposed endpoint should not hand out for free.
+- **The probes and `/metrics` are not gated.** They are served by `createApp`, above the route
+  list the gate lives in, so a missing token can never take the pod out of service or blind
+  Prometheus. The consequence is that they are reachable on the same port: **route only `/api`
+  at the Ingress.**
+- A rejected request gets `401` with `WWW-Authenticate: Bearer` and a bare
+  `{"error":"unauthorized"}` — nothing about the expected value, not even its length. The compare
+  is constant-time.
+
+`orders-api` and `settlement-worker` carry no such gate. They are cluster-internal, reached only
+by the gateway; if you expose one, it needs the same treatment.
+
 ### storefront
 
 | Variable | Default | Fault knob |
 |---|---|---|
 | `GATEWAY_URL` | _required_ | — |
+| `GATEWAY_AUTH_TOKEN` | _unset_ — the same value checkout-gateway reads | — |
 | `GATEWAY_TIMEOUT_MS` | `2000` | ✓ set below real latency to cause 504 storms |
 | `SSR_CONCURRENCY` | `32` | ✓ set to `1` for head-of-line blocking |
 | `ASSET_VERSION` | `$SERVICE_VERSION` | ✓ set to stale SHA to cause asset 404s |
@@ -110,6 +140,7 @@ operator an unencrypted connection they believe is encrypted.
 |---|---|---|
 | `ORDERS_API_URL` | _required_ | — |
 | `WORKER_URL` | _required_ | — |
+| `GATEWAY_AUTH_TOKEN` | _unset_ (`/api` open) — see [API authentication](#api-authentication) | — |
 | `DOWNSTREAM_TIMEOUT_MS` | `2000` | ✓ |
 | `CACHE_TTL_SECONDS` | `30` | ✓ set to `0` to disable cache |
 | `CACHE_MAX_ENTRIES` | `1000` | — |

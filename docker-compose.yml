@@ -1,5 +1,10 @@
 # Local stack. Mirrors the deployment contract: one migration pass, then four services.
 
+# One value, two readers. Set here so the default local run exercises the AUTHENTICATED path:
+# a stack that only ever works with auth off is a stack where nobody finds out the token was
+# never wired until it is exposed.
+x-gateway-token: &gateway-token "local-gateway-token"
+
 # The connection, written once. Three services read it, and a fourth would too — three copies
 # of the same host and password is how a local stack ends up half-pointed at the wrong database.
 x-db-env: &db-env
@@ -74,6 +79,7 @@ services:
     environment:
       ORDERS_API_URL: http://orders-api:3000
       WORKER_URL: http://settlement-worker:3001
+      GATEWAY_AUTH_TOKEN: *gateway-token
       SERVICE_VERSION: local
       LOG_LEVEL: debug
       PORT: "3000"
@@ -89,6 +95,7 @@ services:
       dockerfile: services/storefront/Dockerfile
     environment:
       GATEWAY_URL: http://checkout-gateway:3000
+      GATEWAY_AUTH_TOKEN: *gateway-token
       SERVICE_VERSION: local
       LOG_LEVEL: debug
       PORT: "3000"

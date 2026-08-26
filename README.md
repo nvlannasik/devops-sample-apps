@@ -45,9 +45,9 @@ loadgen `8090`.
 export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH
 npm install
 npm run build:libs
-npm test                              # 251 tests, 20 DB tests skip without Postgres
+npm test                              # 261 tests, 20 DB tests skip without Postgres
 docker compose up -d postgres
-TEST_DATABASE_URL=postgres://sample:sample@127.0.0.1:5432/sample_app npm test  # all 251 pass
+TEST_DATABASE_URL=postgres://sample:sample@127.0.0.1:5432/sample_app npm test  # all 261 pass
 ```
 
 ## Load generator
@@ -80,6 +80,21 @@ decides whether a latency scenario works at all: one worker is one request at a 
 makes a server with `SSR_CONCURRENCY=1` or `DB_POOL_MAX=1` queue — no matter how high the rps.
 Raise it to 5+ for those. See [`DEPLOYMENT_CONTRACT.md` §5](docs/DEPLOYMENT_CONTRACT.md#5-load-generator).
 
+
+## API authentication
+
+`checkout-gateway` gates `/api` behind a bearer token. `GATEWAY_AUTH_TOKEN` is one value set on
+both the gateway (which enforces it) and the storefront (which presents it) — the same shape as
+`MCP_AUTH_TOKEN` between the agent and the MCP server, and deliberately not the session-and-login
+the load generator uses: the storefront cannot fill in a form.
+
+Unset leaves `/api` open with a warning at boot. `docker compose` sets a token anyway, so the
+default local run exercises the authenticated path rather than hiding a wiring mistake.
+
+The probes and `/metrics` are **not** gated — they sit above the gate, so a missing token can
+never take a pod out of service or blind Prometheus. That also means they answer on the same
+port: route only `/api` at the Ingress. See
+[`DEPLOYMENT_CONTRACT.md` §3](docs/DEPLOYMENT_CONTRACT.md#api-authentication).
 
 ## Fault catalog
 
