@@ -181,7 +181,9 @@ test("the stylesheet is served at its versioned path and cached", async () => {
   await withApp(stubClient({}), async (base) => {
     const res = await fetch(`${base}/assets/abc123/app.css`);
     assert.equal(res.status, 200);
-    assert.match(res.headers.get("content-type")!, /text\/css/);
+    // Exact, not a match: Headers.get joins duplicates, so /text\/css/ passed for as long as
+    // the response carried BOTH text/plain and text/css and browsers refused the stylesheet.
+    assert.equal(res.headers.get("content-type"), "text/css; charset=utf-8");
     assert.equal(res.headers.get("cache-control"), "public, max-age=3600");
     assert.equal(await res.text(), APP_CSS, "the versioned path must serve the real stylesheet");
   });
