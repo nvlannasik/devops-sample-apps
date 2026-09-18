@@ -8,7 +8,14 @@
  * it is needed most.
  */
 import type http from "node:http";
-import { sendHtml, type Route, type RouteHandler } from "@sample-app/platform";
+import {
+  FAULT_CONTROL_PATH,
+  sendHtml,
+  type FaultKnobState,
+  type FaultState,
+  type Route,
+  type RouteHandler,
+} from "@sample-app/platform";
 import {
   LoginThrottle,
   SESSION_COOKIE,
@@ -23,6 +30,7 @@ import {
 import {
   CONCURRENCY_BOUNDS,
   RPS_BOUNDS,
+  type FaultTarget,
   type LoadRunner,
   type RunSettings,
   type RunnerState,
@@ -31,6 +39,70 @@ import { isLive, parseForm } from "./routes.js";
 import { esc, liveToggle } from "./views.js";
 
 class BadSettingError extends Error {}
+
+/** What one target answered, or why it could not be reached. Never both. */
+export interface TargetFaultState {
+  target: FaultTarget;
+  state: FaultState | null;
+  error?: string;
+}
+
+/**
+ * Short by design. This runs while the page is being rendered, and a service that has stopped
+ * answering is itself worth showing — waiting 30 seconds for it to confirm that would take the
+ * Disarm button away at exactly the moment someone needs it.
+ */
+const FAULT_CALL_TIMEOUT_MS = 2000;
+
+function authHeaders(token: string | null): Record<string, string> {
+  return token ? { authorization: `Bearer ${token}` } : {};
+}
+
+function reason(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+export async function fetchFaults(target: FaultTarget, token: string | null): Promise<TargetFaultState> {
+  try {
+    const res = await fetch(`${target.url}${FAULT_CONTROL_PATH}`, {
+      headers: { accept: "application/json", ...authHeaders(token) },
+      signal: AbortSignal.timeout(FAULT_CALL_TIMEOUT_MS),
+    });
+    if (res.status === 401) return { target, state: null, error: "rejected the token — FAULT_CONTROL_TOKEN differs there" };
+    if (res.status === 404) return { target, state: null, error: "has no fault control: FAULT_CONTROL_TOKEN is unset on that service" };
+    if (!res.ok) return { target, state: null, error: `answered ${res.status}` };
+    return { target, state: (await res.json()) as FaultState };
+  } catch (err) {
+    return { target, state: null, error: `unreachable: ${reason(err)}` };
+  }
+}
+
+/** Null on success, the operator-facing reason on failure. */
+export async function postFault(
+  target: FaultTarget,
+  token: string | null,
+  key: string,
+  on: boolean,
+): Promise<string | null> {
+  try {
+    const res = await fetch(`${target.url}${FAULT_CONTROL_PATH}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...authHeaders(token) },
+      body: JSON.stringify({ key, on }),
+      signal: AbortSignal.timeout(FAULT_CALL_TIMEOUT_MS),
+    });
+    if (res.ok) return null;
+    return `${target.name} refused the change: ${res.status} ${(await res.text()).slice(0, 120)}`;
+  } catch (err) {
+    return `${target.name} is unreachable: ${reason(err)}`;
+  }
+}
+
+/** "14m" / "45s". Minutes are enough resolution to decide whether to re-arm before it lapses. */
+export function formatRemaining(expiresAt: number, now: number): string {
+  const seconds = Math.max(0, Math.round((expiresAt - now) / 1000));
+  return seconds >= 60 ? `${Math.floor(seconds / 60)}m` : `${seconds}s`;
+}
 
 function intField(form: Record<string, string>, key: string, bounds: { min: number; max: number }): number {
   const value = Number(form[key]);
@@ -93,6 +165,18 @@ button:disabled { opacity:0.35; cursor:not-allowed; }
 button.quiet { background:transparent; color:var(--muted); border:1px solid var(--line); }
 button.quiet:hover { background:transparent; color:var(--text); border-color:var(--signal); }
 .muted { color:var(--muted); }
+.state-armed { background:rgba(232,105,95,0.16); color:var(--fail); }
+.target { margin-top:12px; }
+.target h3 { display:flex; align-items:baseline; gap:10px; margin:0 0 4px; font:600 13px/1.4 var(--mono); letter-spacing:0.04em; }
+.knob { display:flex; align-items:center; gap:16px; padding:14px 0; border-bottom:1px solid var(--line); }
+.knob:last-child { padding-bottom:0; border-bottom:0; }
+.knob-main { flex:1; min-width:0; }
+.knob-name { display:flex; align-items:center; gap:10px; font:600 15px/1.3 var(--mono); }
+.knob-note { margin:5px 0 0; color:var(--muted); font-size:13px; }
+.lapse { display:inline-block; margin-left:4px; padding:1px 8px; border:1px solid var(--line); border-radius:999px; font:11px/1.6 var(--mono); white-space:nowrap; }
+.knob form { margin:0; flex:none; width:140px; }
+/* Taller than the run controls: this is the button someone hits from across a room, mid-demo. */
+.knob button { min-height:42px; }
 .detail { color:var(--muted); font:12px/1.5 var(--mono); }
 .error { border-left:3px solid var(--fail); padding-left:14px; margin-bottom:18px; }
 code { font-family:var(--mono); font-size:13px; }
@@ -134,6 +218,73 @@ export interface ControlPageOptions {
   error?: string;
   /** False when the reader asked the page to hold still with `?live=off`. */
   live?: boolean;
+  /** One entry per FAULT_TARGETS service. Empty renders the card's "not configured" note. */
+  faults?: TargetFaultState[];
+  /** Injectable so a test can assert a countdown instead of racing one. */
+  now?: number;
+}
+
+function knobRow(targetName: string, knob: FaultKnobState, now: number): string {
+  const remaining = knob.active && knob.expiresAt ? formatRemaining(knob.expiresAt, now) : null;
+  // Red for Arm, plain for Disarm: the colour says what the click does, not what the state is,
+  // so the destructive one is the one that looks destructive from the back of the room.
+  const action = knob.active
+    ? { on: "false", label: "Disarm", cls: "" }
+    : { on: "true", label: "Arm", cls: "stop" };
+  return `  <div class="knob">
+    <div class="knob-main">
+      <div class="knob-name">${esc(knob.label)}${knob.active ? `<span class="pill state-armed">armed</span>` : ""}</div>
+      <p class="knob-note">${esc(knob.note)}${
+        // Separated, not appended: the notes do not end in a full stop, and "serves 502 Reverts
+        // in 15m" read as one sentence the first time this was rendered.
+        remaining ? ` <span class="lapse">reverts in ${esc(remaining)}</span>` : ""
+      }</p>
+    </div>
+    <form method="post" action="/control/arm">
+      <input type="hidden" name="target" value="${esc(targetName)}">
+      <input type="hidden" name="key" value="${esc(knob.key)}">
+      <input type="hidden" name="on" value="${action.on}">
+      <button class="${action.cls}" type="submit">${action.label}<span class="sr-only"> ${esc(knob.label)} on ${esc(targetName)}</span></button>
+    </form>
+  </div>`;
+}
+
+export function faultsCard(faults: TargetFaultState[], now: number): string {
+  if (faults.length === 0) {
+    return `<h2>Faults</h2>
+<div class="card">
+  <p class="detail"><code>FAULT_TARGETS</code> is not set, so there is nothing to arm from here. Set it to
+  the services that expose <code>${esc(FAULT_CONTROL_PATH)}</code>, for example
+  <code>storefront=http://storefront:3000,orders-api=http://orders-api:3000</code>.</p>
+</div>`;
+  }
+
+  const armed = faults.reduce((n, f) => n + (f.state?.knobs.filter((k) => k.active).length ?? 0), 0);
+  const ttl = faults.find((f) => f.state)?.state?.ttlSeconds;
+  const bodies = faults.map((entry) => {
+    const inner = entry.state
+      ? entry.state.knobs.map((knob) => knobRow(entry.target.name, knob, now)).join("\n")
+      : `  <p class="knob-note">${esc(entry.target.name)} ${esc(entry.error ?? "did not answer")}.</p>`;
+    return `<div class="card target">
+  <h3>${esc(entry.target.name)} <span class="detail">${esc(entry.target.url)}</span></h3>
+${inner}
+</div>`;
+  });
+
+  return `<h2>Faults
+  <span class="pill state-${armed > 0 ? "armed" : "idle"}">${armed > 0 ? `${armed} armed` : "none"}</span>
+</h2>
+<!-- One atomic status for the whole card: a live region per knob would make every refresh a
+     competing announcement, and the number alone would say nothing. -->
+<p class="sr-only" role="status" aria-atomic="true">${
+    armed === 0 ? "No faults armed" : `${armed} fault${armed === 1 ? "" : "s"} armed`
+  }</p>
+${bodies.join("\n")}
+<p class="detail note">Each fault is the environment variable from
+<code>docs/DEPLOYMENT_CONTRACT.md §3</code>, flipped in the running process — the same code path a
+redeploy would take, minus the redeploy.${
+    ttl ? ` Anything armed reverts on its own after ${Math.round(ttl / 60)} minutes.` : ""
+  } Faults need traffic to show up: start the run above first.</p>`;
 }
 
 export function controlPage(opts: ControlPageOptions): string {
@@ -192,7 +343,9 @@ ${field("durationSeconds", "Duration (0 = forever)", form.durationSeconds, `type
   <p class="detail note">Concurrency is how many requests are in flight at once. One worker never
   makes a serialised server queue, so <code>SSR_CONCURRENCY=1</code> and <code>DB_POOL_MAX=1</code>
   need this above 1 before latency moves. <code>rps</code> is the total across workers.</p>
-</div>`,
+</div>
+
+${faultsCard(opts.faults ?? [], opts.now ?? Date.now())}`,
     polling ? 5 : null,
   );
 }
@@ -237,17 +390,25 @@ export interface ControlRouteDeps {
   /** Null disables the page entirely: it serves 503 rather than serving Start to anyone. */
   password: string | null;
   cookieSecure: boolean;
+  /** Empty renders the Faults card as an explanation rather than buttons. */
+  faultTargets: FaultTarget[];
+  /** Presented to every target. The same FAULT_CONTROL_TOKEN those services check. */
+  faultToken: string | null;
 }
 
 export function createControlRoutes(deps: ControlRouteDeps): Route[] {
   const throttle = new LoginThrottle();
 
-  const render = (res: http.ServerResponse, status: number, live: boolean, error?: string): void => {
+  const render = async (res: http.ServerResponse, status: number, live: boolean, error?: string): Promise<void> => {
+    // In parallel: two targets that each take a second must not cost two seconds, and one that
+    // has stopped answering must not hold the page past its own timeout.
+    const faults = await Promise.all(deps.faultTargets.map((t) => fetchFaults(t, deps.faultToken)));
     sendHtml(res, status, controlPage({
       state: deps.runner.state(),
       targetUrl: deps.targetUrl,
       defaults: deps.defaults,
       live,
+      faults,
       ...(error ? { error } : {}),
     }));
   };
@@ -278,7 +439,7 @@ export function createControlRoutes(deps: ControlRouteDeps): Route[] {
     {
       method: "GET",
       pattern: "/",
-      handler: guard(async ({ res, url }) => render(res, 200, isLive(url))),
+      handler: guard(async ({ res, url }) => { await render(res, 200, isLive(url)); }),
     },
     {
       method: "GET",
@@ -349,7 +510,7 @@ export function createControlRoutes(deps: ControlRouteDeps): Route[] {
           settings = parseSettings(parseForm(await readBody()));
         } catch (err) {
           if (err instanceof BadSettingError) {
-            render(res, 400, true, err.message);
+            await render(res, 400, true, err.message);
             return;
           }
           throw err;
@@ -365,6 +526,29 @@ export function createControlRoutes(deps: ControlRouteDeps): Route[] {
       pattern: "/control/stop",
       handler: guard(async ({ res }) => {
         await deps.runner.stop();
+        res.writeHead(303, { location: "/" });
+        res.end();
+      }),
+    },
+    {
+      // `/control/arm`, not `/control/fault`: that path is the services' own API, and naming the
+      // page's form after it would collide the day this generator declares a knob of its own.
+      method: "POST",
+      pattern: "/control/arm",
+      handler: guard(async ({ res, readBody }) => {
+        const form = parseForm(await readBody());
+        const target = deps.faultTargets.find((t) => t.name === form["target"]);
+        if (!target) {
+          await render(res, 400, true, `No fault target named "${form["target"] ?? ""}".`);
+          return;
+        }
+        // No confirmation dialog. Arming is reversible by the button beside it and by the TTL,
+        // and a demo that needs two clicks to show one thing is a demo nobody runs twice.
+        const failure = await postFault(target, deps.faultToken, form["key"] ?? "", form["on"] === "true");
+        if (failure) {
+          await render(res, 502, true, failure);
+          return;
+        }
         res.writeHead(303, { location: "/" });
         res.end();
       }),

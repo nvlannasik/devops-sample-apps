@@ -57,13 +57,22 @@ docs/
 
 ## Fault knobs
 
-See `docs/DEPLOYMENT_CONTRACT.md §3` for the full table. Key ones:
+See `docs/DEPLOYMENT_CONTRACT.md §3` for the full table, and **§3 "Arming a fault at runtime"**
+for the runtime switch: with `FAULT_CONTROL_TOKEN` set, each service serves `/control/fault` and
+the load generator's control page renders one button per knob. Same code paths, no redeploy,
+auto-reverts after `FAULT_TTL_SECONDS` (15m). Which knobs each service offers lives in its own
+`config.ts` as `FAULT_KNOBS`. Pool sizes are excluded — they are read once when the pool is
+built, so a runtime override would look armed and do nothing. Key ones:
 - `ORDER_RESPONSE_VERSION=2` — breaks checkout-gateway parse
 - `ASSET_VERSION=stale` — asset 404s with all metrics green
 - `GATEWAY_TIMEOUT_MS=50` — gateway timeout storm
 - `SSR_CONCURRENCY=1` — head-of-line blocking at storefront. Needs the generator's
   **concurrency** above 1, not just a high rps: one worker is one in-flight request and never
   makes a serialised server queue.
+
+A runtime toggle leaves no ReplicaSet and no commit behind, so `fault_active{service,knob}` and a
+WARN log line are the trail. A **benchmark run should still use the environment variable** — the
+button is for demos.
 
 ## Global constraints
 

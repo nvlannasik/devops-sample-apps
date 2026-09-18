@@ -92,6 +92,14 @@ export interface CommonConfig {
   deploymentEnv: string;
   otelEndpoint: string | null;
   gracefulShutdownMs: number;
+  /**
+   * Gates `/control/fault`. Unset leaves the route unregistered entirely — unlike
+   * `GATEWAY_AUTH_TOKEN`, which leaves `/api` open when nobody configured it. An endpoint that
+   * arms failures is the one place where "no token configured" must mean closed, not open.
+   */
+  faultControlToken: string | null;
+  /** How long an armed knob stays armed. The cluster heals itself after a demo walks away. */
+  faultTtlSeconds: number;
 }
 
 export function loadCommonConfig(env: EnvSource): CommonConfig {
@@ -104,6 +112,9 @@ export function loadCommonConfig(env: EnvSource): CommonConfig {
     deploymentEnv: optStr(env, "DEPLOYMENT_ENV", "dev"),
     otelEndpoint: optStr(env, "OTEL_EXPORTER_OTLP_ENDPOINT", "") || null,
     gracefulShutdownMs: optInt(env, "GRACEFUL_SHUTDOWN_MS", 10000, { min: 0 }),
+    faultControlToken: optStr(env, "FAULT_CONTROL_TOKEN", "") || null,
+    // 15 minutes: longer than a demo takes to narrate, shorter than the walk to lunch.
+    faultTtlSeconds: optInt(env, "FAULT_TTL_SECONDS", 900, { min: 10, max: 86_400 }),
   };
 }
 

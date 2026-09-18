@@ -1,4 +1,40 @@
-import { loadCommonConfig, optInt, optStr, requireUrl, type CommonConfig, type EnvSource } from "@sample-app/platform";
+import {
+  loadCommonConfig,
+  optInt,
+  optStr,
+  requireUrl,
+  type CommonConfig,
+  type EnvSource,
+  type FaultKnob,
+} from "@sample-app/platform";
+
+/**
+ * The knobs this service can arm at runtime, from `docs/DEPLOYMENT_CONTRACT.md §3`.
+ *
+ * `SSR_CONCURRENCY` needs the generator's concurrency above 1 before it moves anything — one
+ * worker is one in-flight request and never makes a serialised queue, no matter the rps. The
+ * control page says so next to the button, because a knob that looks broken is worse than none.
+ */
+export const FAULT_KNOBS: FaultKnob[] = [
+  {
+    key: "GATEWAY_TIMEOUT_MS",
+    label: "Gateway timeout 50ms",
+    armed: "50",
+    note: "the storefront gives up before checkout-gateway can answer: a 504 storm at the edge with every tier below it healthy",
+  },
+  {
+    key: "SSR_CONCURRENCY",
+    label: "SSR concurrency 1",
+    armed: "1",
+    note: "requests queue at the edge; TTFB explodes while no downstream service slows down. Needs generator concurrency above 1",
+  },
+  {
+    key: "ASSET_VERSION",
+    label: "Stale asset version",
+    armed: "stale",
+    note: "every page links a stylesheet that 404s: the product is visibly broken and every metric stays green",
+  },
+];
 
 export interface StorefrontConfig extends CommonConfig {
   gatewayUrl: string;

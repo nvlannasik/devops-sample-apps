@@ -63,6 +63,8 @@ test("loadCommonConfig applies every documented default", () => {
     deploymentEnv: "dev",
     otelEndpoint: null,
     gracefulShutdownMs: 10000,
+    faultControlToken: null,
+    faultTtlSeconds: 900,
   });
 });
 

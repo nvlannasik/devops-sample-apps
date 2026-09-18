@@ -2,9 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
-import { createApp, createLogger, createMetrics, loadCommonConfig, RollingStats } from "@sample-app/platform";
+import { createApp, createLogger, createMetrics, loadCommonConfig, RollingStats, type FaultKnobState } from "@sample-app/platform";
 import { createLoadRunner, type LoadRunner, type RunSettings } from "./loadgen.js";
-import { controlPage, createControlRoutes, loginPage, parseSettings } from "./loadgen-control.js";
+import { controlPage, createControlRoutes, loginPage, parseSettings, type TargetFaultState } from "./loadgen-control.js";
 
 const DEFAULTS: RunSettings = { rps: 5, concurrency: 1, checkoutRatio: 0.3, durationSeconds: 0 };
 
@@ -168,6 +168,8 @@ async function withControl<T>(
       defaults: DEFAULTS,
       password,
       cookieSecure: false,
+      faultTargets: [],
+      faultToken: null,
     }),
     readiness: async () => ({ ok: true }),
   });
@@ -370,4 +372,81 @@ test("the error banner is escaped too", () => {
   });
   assert.doesNotMatch(html, /<img src=x/);
   assert.match(html, /&lt;img/);
+});
+
+const knobState = (over: Partial<FaultKnobState> = {}): FaultKnobState => ({
+  key: "ORDER_RESPONSE_VERSION",
+  label: "Order response v2",
+  armed: "2",
+  note: "breaks the gateway's parse",
+  active: false,
+  expiresAt: null,
+  ...over,
+});
+
+const targetState = (knobs: FaultKnobState[]): TargetFaultState => ({
+  target: { name: "orders-api", url: "http://orders:3000" },
+  state: { service: "orders-api", ttlSeconds: 900, knobs },
+});
+
+test("an unarmed knob offers Arm, an armed one offers Disarm and says when it lapses", () => {
+  const now = Date.UTC(2026, 8, 18, 12, 0, 0);
+  const off = controlPage({
+    state: createLoadRunner("http://127.0.0.1:1").state(),
+    targetUrl: "http://storefront:3000",
+    defaults: DEFAULTS,
+    faults: [targetState([knobState()])],
+    now,
+  });
+  assert.match(off, /name="on" value="true"/);
+  assert.match(off, />Arm</);
+  assert.doesNotMatch(off, /pill state-armed/);
+
+  const on = controlPage({
+    state: createLoadRunner("http://127.0.0.1:1").state(),
+    targetUrl: "http://storefront:3000",
+    defaults: DEFAULTS,
+    faults: [targetState([knobState({ active: true, expiresAt: now + 14 * 60_000 })])],
+    now,
+  });
+  assert.match(on, /name="on" value="false"/);
+  assert.match(on, />Disarm</);
+  assert.match(on, /pill state-armed">armed</);
+  assert.match(on, /reverts in 14m/);
+  assert.match(on, /1 fault armed/);
+});
+
+test("a target that cannot be reached says so instead of offering a button that would fail", () => {
+  const html = controlPage({
+    state: createLoadRunner("http://127.0.0.1:1").state(),
+    targetUrl: "http://storefront:3000",
+    defaults: DEFAULTS,
+    faults: [{ target: { name: "orders-api", url: "http://orders:3000" }, state: null, error: "unreachable: connect ECONNREFUSED" }],
+  });
+  assert.match(html, /ECONNREFUSED/);
+  assert.doesNotMatch(html, /action="\/control\/arm"/);
+});
+
+test("no FAULT_TARGETS renders the reason, not an empty card", () => {
+  const html = controlPage({
+    state: createLoadRunner("http://127.0.0.1:1").state(),
+    targetUrl: "http://storefront:3000",
+    defaults: DEFAULTS,
+    faults: [],
+  });
+  assert.match(html, /FAULT_TARGETS<\/code> is not set/);
+});
+
+test("a knob's label and note come from another service, so they are escaped like any input", () => {
+  // The loadgen renders JSON fetched from the targets. A misconfigured or compromised target
+  // must not be able to put script into the page that arms the cluster.
+  const html = controlPage({
+    state: createLoadRunner("http://127.0.0.1:1").state(),
+    targetUrl: "http://storefront:3000",
+    defaults: DEFAULTS,
+    faults: [targetState([knobState({ label: `<script>alert(1)</script>`, note: `<img src=x onerror=alert(1)>` })])],
+  });
+  assert.doesNotMatch(html, /<script>alert/);
+  assert.doesNotMatch(html, /<img src=x/);
+  assert.match(html, /&lt;script&gt;/);
 });

@@ -3,6 +3,7 @@ import {
   createApp,
   createLogger,
   createMetrics,
+  faultInt,
   initTracing,
   listen,
   installShutdown,
@@ -11,7 +12,7 @@ import {
   RollingStats,
   traceContext,
 } from "@sample-app/platform";
-import { loadConfig } from "./config.js";
+import { FAULT_KNOBS, loadConfig } from "./config.js";
 import { createPool } from "./db/pool.js";
 import { createOrdersRepo } from "./db/orders-repo.js";
 import { assertSchemaCurrent } from "./db/migrate.js";
@@ -71,7 +72,17 @@ const server = createApp({
   logger,
   metrics,
   stats,
-  routes: createRoutes({ repo, logger, orderResponseVersion: config.orderResponseVersion }),
+  routes: createRoutes({
+    repo,
+    logger,
+    // A getter, not a value: the route list is built once at boot, so a captured number could
+    // never see the knob move. routes.ts reads `deps.orderResponseVersion` per response and
+    // does not care that the property computes itself.
+    get orderResponseVersion() {
+      return faultInt("ORDER_RESPONSE_VERSION", config.orderResponseVersion, { min: 1, max: 2 }) as 1 | 2;
+    },
+  }),
+  faults: { knobs: FAULT_KNOBS, token: config.faultControlToken, ttlSeconds: config.faultTtlSeconds },
   readiness,
   // LIVENESS_CHECKS_DB=true makes the kubelet restart healthy pods when the database
   // stalls — a cluster-wide restart storm whose symptom points nowhere near its cause.

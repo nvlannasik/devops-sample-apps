@@ -1,5 +1,44 @@
 import { CATALOG } from "@sample-app/contracts";
-import { optBool, optInt, optNumber, optStr, requireUrl, type EnvSource } from "@sample-app/platform";
+import { ConfigError, optBool, optInt, optNumber, optStr, requireUrl, type EnvSource } from "@sample-app/platform";
+
+/** A service whose `/control/fault` the control page can reach. */
+export interface FaultTarget {
+  /** Shown on the page, and the form value that selects it. */
+  name: string;
+  /** In-cluster, not browser-reachable: the generator calls it, never the operator's browser. */
+  url: string;
+}
+
+/**
+ * `FAULT_TARGETS=storefront=http://storefront:3000,orders-api=http://orders-api:3000`
+ *
+ * Unset means the Faults card renders an explanation instead of buttons. A name=url list rather
+ * than one URL because the knobs live in the service that reads them, and an incident worth
+ * demonstrating usually starts one tier away from where it is felt.
+ */
+export function parseFaultTargets(raw: string): FaultTarget[] {
+  const targets: FaultTarget[] = [];
+  for (const entry of raw.split(",").map((s) => s.trim()).filter(Boolean)) {
+    const eq = entry.indexOf("=");
+    if (eq <= 0) throw new ConfigError("FAULT_TARGETS", `entry "${entry}" must be name=url`);
+    const name = entry.slice(0, eq).trim();
+    const url = entry.slice(eq + 1).trim();
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new ConfigError("FAULT_TARGETS", `"${name}" must be an absolute URL, got "${url}"`);
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new ConfigError("FAULT_TARGETS", `"${name}" must use http or https, got "${parsed.protocol}"`);
+    }
+    if (targets.some((t) => t.name === name)) {
+      throw new ConfigError("FAULT_TARGETS", `"${name}" is listed twice`);
+    }
+    targets.push({ name, url: url.replace(/\/+$/, "") });
+  }
+  return targets;
+}
 
 /** Bounds shared by the environment loader and the control form, so both refuse the same values. */
 export const RPS_BOUNDS = { min: 1, max: 10_000 } as const;
@@ -15,6 +54,7 @@ export interface LoadgenConfig {
   autostart: boolean;
   uiPassword: string | null;
   uiCookieSecure: boolean;
+  faultTargets: FaultTarget[];
 }
 
 export function loadLoadgenConfig(env: EnvSource): LoadgenConfig {
@@ -37,6 +77,9 @@ export function loadLoadgenConfig(env: EnvSource): LoadgenConfig {
     // symptom — a login form that keeps reappearing — points nowhere near the cause. Browsers
     // exempt localhost, so a port-forward needs no change; only a plain-HTTP hostname does.
     uiCookieSecure: optBool(env, "LOADGEN_UI_COOKIE_SECURE", true),
+    // Empty is the honest default: a generator pointed at nothing must not imply it can
+    // break something. The token it presents is FAULT_CONTROL_TOKEN from the common config.
+    faultTargets: parseFaultTargets(optStr(env, "FAULT_TARGETS", "")),
   };
 }
 

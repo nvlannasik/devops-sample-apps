@@ -69,6 +69,8 @@ Read by `loadCommonConfig` in `@sample-app/platform`, so all four services accep
 | `DEPLOYMENT_ENV` | `dev` | — |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | _unset_ (tracing off) | — see §7 |
 | `GRACEFUL_SHUTDOWN_MS` | `10000` | ✓ raise above `terminationGracePeriodSeconds` to make the kubelet SIGKILL mid-drain |
+| `FAULT_CONTROL_TOKEN` | _unset_ — **no `/control/fault` route at all** | — see [Arming a fault at runtime](#arming-a-fault-at-runtime) |
+| `FAULT_TTL_SECONDS` | `900` | — how long an armed knob stays armed before it reverts itself |
 
 `GRACEFUL_SHUTDOWN_MS` is how long a pod keeps serving after SIGTERM. Keep
 `terminationGracePeriodSeconds` above it, or the kubelet kills the process while it is still
@@ -167,6 +169,45 @@ by the gateway; if you expose one, it needs the same treatment.
 | `DB_POOL_MAX` | `5` | — |
 | `VERBOSE_PAYLOAD` | `false` | ✓ set to `true` to emit order items in logs |
 
+### Arming a fault at runtime
+
+Every knob above is an environment variable, and changing one is a commit and a rollout. That is
+the honest way to inject a fault — it leaves a new ReplicaSet and a diff, which is the evidence an
+RCA follows. It is also two minutes long, which is two minutes too many in front of an audience.
+
+`FAULT_CONTROL_TOKEN` adds a second way in: `POST /control/fault` flips a knob in the running
+process, no restart. The load generator's control page renders it as one button per knob
+(see §5). Everything else about the fault is unchanged — arming `ORDER_RESPONSE_VERSION` runs the
+same serializer the environment variable runs.
+
+| | |
+|---|---|
+| **Which knobs** | Each service declares its own, in its `config.ts` as `FAULT_KNOBS`. storefront: `GATEWAY_TIMEOUT_MS`, `SSR_CONCURRENCY`, `ASSET_VERSION`. orders-api: `ORDER_RESPONSE_VERSION`. |
+| **To what value** | The one in the table above, and only that one. The request names a knob; it does not supply a value, so this is a switch and not a config API. |
+| **For how long** | `FAULT_TTL_SECONDS`, default 15 minutes, then it reverts itself. A demo that walks away does not leave a broken cluster. |
+| **Who may** | Anyone holding `FAULT_CONTROL_TOKEN`. Unset leaves the route **unregistered** — unlike `GATEWAY_AUTH_TOKEN`, which leaves `/api` open when nobody configured it. |
+
+**Pool sizes are absent on purpose.** `DB_POOL_MAX` and `DB_STATEMENT_TIMEOUT_MS` are read once,
+when the pool is built. A runtime override would show the knob as armed and change nothing, which
+is worse than not offering it. Those two stay an environment variable and a rollout.
+
+**The trail.** A runtime toggle leaves no new ReplicaSet and no commit, so "what changed?" finds
+nothing. Two things exist to close that gap:
+
+- `fault_active{service,knob}` — 1 while a knob is armed, the sibling of `build_info` for a fault
+  that arrived without a deploy.
+- a WARN log line at arm and at disarm, carrying the knob, the value and the expiry.
+
+Both are observable from the same tools the agent already calls. Neither is in git, which is why a
+**benchmark run should still use the environment variable** — the button is for demos and manual
+exploration, where someone already knows the answer.
+
+```sh
+curl -sX POST http://orders-api:3000/control/fault \
+  -H "authorization: Bearer $FAULT_CONTROL_TOKEN" \
+  -d '{"key":"ORDER_RESPONSE_VERSION","on":true}'
+```
+
 ---
 
 ## §4 Ports and health endpoints
@@ -178,6 +219,7 @@ Every service exposes the same set of built-in routes on its `PORT` (default `30
 | `GET /healthz` | Always `{"status":"ok"}` if the process is alive |
 | `GET /readyz` | `{"status":"ok"}` when the service is ready to serve traffic |
 | `GET /metrics` | Prometheus metrics (text/plain) |
+| `GET\|POST /control/fault` | Arm or disarm a fault knob. **Only when `FAULT_CONTROL_TOKEN` is set** |
 
 Additionally:
 
@@ -210,6 +252,7 @@ The page serves itself on the generator's own port with an inline stylesheet, so
 | `GET /` | Control page: live counters and the settings form |
 | `POST /control/start` | Start (or restart with new settings) — form post, redirects to `/` |
 | `POST /control/stop` | Stop after the requests in flight finish |
+| `POST /control/arm` | Arm or disarm one fault knob on one target — form post, redirects to `/` |
 
 | Variable | Default |
 |---|---|
@@ -221,6 +264,8 @@ The page serves itself on the generator's own port with an inline stylesheet, so
 | `LOADGEN_AUTOSTART` | `false` — `true` drives from boot without touching the page |
 | `LOADGEN_UI_PASSWORD` | _unset_ — **the page serves 503 until this is set** |
 | `LOADGEN_UI_COOKIE_SECURE` | `true` — set `false` only for a plain-HTTP hostname |
+| `FAULT_TARGETS` | _unset_ — `name=url,name=url` of services to offer fault buttons for |
+| `FAULT_CONTROL_TOKEN` | _unset_ — the same value those services check |
 
 Every one of these seeds the form and is editable at runtime; the environment only decides where
 the run starts.

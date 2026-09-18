@@ -2,8 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";
 import { randomUUID } from "node:crypto";
-import { createApp, createLogger, createMetrics, loadCommonConfig, RollingStats } from "@sample-app/platform";
+import { clearFaults, createApp, createLogger, createMetrics, faultInt, loadCommonConfig, RollingStats } from "@sample-app/platform";
 import type { OrderRow } from "@sample-app/contracts";
+import { FAULT_KNOBS } from "./config.js";
 import { createRoutes } from "./routes.js";
 
 function stubRepo(rows: OrderRow[] = []) {
@@ -141,4 +142,56 @@ test("GET /orders caps limit at 100 and rejects a non-numeric limit", async () =
     assert.equal(seen, 20);
     assert.equal((await fetch(`${base}/orders?limit=abc`)).status, 400);
   });
+});
+test("arming ORDER_RESPONSE_VERSION at runtime changes the shape on the wire, no restart", async () => {
+  const logger = createLogger({ service: "orders-api", version: "test", level: "error", write: () => {} });
+  const repo = stubRepo();
+  // Wired exactly as index.ts wires it. A plain value here instead of a getter would pass every
+  // other test in this file and make the button do nothing — which is the failure this exists
+  // to catch. FAULT_KNOBS rather than a literal key, so a typo in the declaration fails here.
+  const server = createApp({
+    service: "orders-api",
+    config: loadCommonConfig({}),
+    metrics: createMetrics({ service: "orders-api", version: "test", commit: "test" }),
+    logger,
+    stats: new RollingStats(),
+    routes: createRoutes({
+      repo,
+      logger,
+      get orderResponseVersion() {
+        return faultInt("ORDER_RESPONSE_VERSION", 1, { min: 1, max: 2 }) as 1 | 2;
+      },
+    }),
+    faults: { knobs: FAULT_KNOBS, token: "s3cret", ttlSeconds: 900 },
+    readiness: async () => ({ ok: true }),
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const { port } = server.address() as AddressInfo;
+  const base = `http://127.0.0.1:${port}`;
+  const place = async (): Promise<Record<string, unknown>> =>
+    (await (await fetch(`${base}/orders`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(cart),
+    })).json()) as Record<string, unknown>;
+
+  try {
+    assert.equal((await place()).amount_cents, 2598);
+
+    const armed = await fetch(`${base}/control/fault`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer s3cret" },
+      body: JSON.stringify({ key: FAULT_KNOBS[0]!.key, on: true }),
+    });
+    assert.equal(armed.status, 200);
+
+    // The same process, the same route list, the same pod: only the response shape moved.
+    const broken = await place();
+    assert.equal(broken.amount_cents, undefined);
+    assert.equal(broken.amountCents, 2598);
+  } finally {
+    clearFaults();
+    server.closeAllConnections();
+    await new Promise<void>((r) => server.close(() => r()));
+  }
 });

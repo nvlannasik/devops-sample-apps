@@ -1,4 +1,5 @@
 import { Counter, Gauge, Histogram, Registry, collectDefaultMetrics } from "prom-client";
+import { activeFaults } from "./faults.js";
 
 /** Seconds. Every duration histogram in the contract shares these. */
 export const DURATION_BUCKETS = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10];
@@ -21,6 +22,7 @@ export interface Metrics {
   settlementJobs: Counter<string>;
   settlementBatchSize: Histogram<string>;
   buildInfo: Gauge<string>;
+  faultActive: Gauge<string>;
 }
 
 export function createMetrics(opts: { service: string; version: string; commit: string }): Metrics {
@@ -105,9 +107,26 @@ export function createMetrics(opts: { service: string; version: string; commit: 
       labelNames: ["service", "version", "commit"],
       registers: [registry],
     }),
+    faultActive: new Gauge({
+      name: "fault_active",
+      help: "1 while a fault knob is armed at runtime; the sibling of build_info for a fault that arrived without a deploy",
+      labelNames: ["service", "knob"],
+      registers: [registry],
+    }),
   };
 
   metrics.buildInfo.set({ service: opts.service, version: opts.version, commit: opts.commit }, 1);
+
+  // Read at scrape time, like the pool counters below: a knob that expired on its own never
+  // calls anything, so a gauge written at arm time would keep claiming a fault that is over.
+  // Reset first — otherwise a disarmed knob's label set lingers at its last value forever.
+  (metrics.faultActive as any).collect = () => {
+    metrics.faultActive.reset();
+    for (const fault of activeFaults()) {
+      metrics.faultActive.set({ service: opts.service, knob: fault.key }, 1);
+    }
+  };
+
   return metrics;
 }
 

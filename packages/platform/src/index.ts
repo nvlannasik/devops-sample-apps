@@ -9,4 +9,5 @@ export * from "./http-client.js";
 export * from "./shutdown.js";
 export * from "./semaphore.js";
 export * from "./bearer.js";
+export * from "./faults.js";
 export * from "./tracing.js";

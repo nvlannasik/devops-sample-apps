@@ -55,7 +55,11 @@ const server = createApp({
     defaults,
     password: config.uiPassword,
     cookieSecure: config.uiCookieSecure,
+    faultTargets: config.faultTargets,
+    faultToken: config.faultControlToken,
   }),
+  // No `faults` here: the generator is not the workload under investigation, and a knob armed on
+  // this pod would break the button that ends the incident.
   // Ready as soon as it is listening. The target being unreachable is the incident under test,
   // not a reason for the generator to drop out of its own Service.
   readiness: async () => ({ ok: true }),

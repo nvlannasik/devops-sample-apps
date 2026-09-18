@@ -122,3 +122,42 @@ TEST_DATABASE_URL=postgres://sample:sample@127.0.0.1:5432/sample_app npm test
 # Migration end-to-end
 DB_HOST=127.0.0.1 DB_USERNAME=sample DB_PASSWORD=sample npm run migrate:dev -w @sample-app/orders-api
 ```
+
+### Runtime fault knobs: a switch, not a config API
+`packages/platform/src/faults.ts` holds an in-process override map; `createApp` serves
+`GET|POST /control/fault` from it, and the load generator's control page renders one button per
+knob across `FAULT_TARGETS`.
+
+- **The request picks a knob; it never supplies a value.** Each service declares `FAULT_KNOBS` in
+  its own `config.ts` with the one value from the contract's fault table, and the endpoint arms
+  that. An extra field in the POST body is ignored. That is what keeps an endpoint that arms
+  failures from being a remote config API.
+- **`FAULT_CONTROL_TOKEN` unset leaves the route unregistered**, not open. `GATEWAY_AUTH_TOKEN`
+  and `MCP_AUTH_TOKEN` both default to open when nobody configured them, on the grounds that a
+  local stack legitimately runs without one. This is the one place that reasoning does not hold.
+- **Overrides are read through the same parser the environment variable used.** `faultInt` builds
+  a one-key `EnvSource` and calls `optInt`, so an armed value cannot mean something its env form
+  could not — and a typo in a `FAULT_KNOBS` declaration fails loudly instead of silently.
+- **Expiry is lazy, not a timer.** Nothing to unref at shutdown, nothing to leak on re-arm, no
+  drift if the clock jumps. `FAULT_TTL_SECONDS` defaults to 15 minutes so a demo cannot leave the
+  cluster broken.
+- **Getters, not values, at the wiring.** `index.ts` passes `get orderResponseVersion()` and
+  `get timeoutMs()` rather than numbers, because route lists and clients are built once at boot.
+  A plain value there passes every other test in the repo and makes the button do nothing — which
+  is why `routes.test.ts` has one test that arms the knob over HTTP and asserts the wire shape
+  changes.
+- **`createSemaphore` takes `number | (() => number)`**, and `release()` admits in a loop rather
+  than one waiter per call: a limit raised back from `SSR_CONCURRENCY=1` has to drain the whole
+  backlog, not one request per completion.
+- **`/control/fault` is in `PROBE_PATHS`.** The button that ends an incident must not add to the
+  error rate being watched to decide whether it worked.
+- **Pool sizes are deliberately absent.** `DB_POOL_MAX`, `DB_STATEMENT_TIMEOUT_MS` are read when
+  the pool is built; a runtime override would render as armed and change nothing.
+- **The cost, and what pays it.** No ReplicaSet, no commit — so `fault_active{service,knob}`
+  (collected at scrape time, reset first so a disarmed label cannot linger) and a WARN line at arm
+  and disarm are the whole trail. Benchmark runs should still use the environment variable.
+- **The buttons live on the generator, never on the workload** — the same reason the Start button
+  does. The generator declares no `FAULT_KNOBS` of its own.
+- **The page escapes what the targets return.** Knob labels and notes are JSON fetched from
+  another service and interpolated into HTML; a misconfigured target must not be able to script
+  the page that arms the cluster.

@@ -7,7 +7,24 @@ import {
   type CommonConfig,
   type DbConfig,
   type EnvSource,
+  type FaultKnob,
 } from "@sample-app/platform";
+
+/**
+ * The knobs this service can arm at runtime, from `docs/DEPLOYMENT_CONTRACT.md §3`.
+ *
+ * `DB_POOL_MAX` and `DB_STATEMENT_TIMEOUT_MS` are absent on purpose: both are read once when the
+ * pool is built, so a runtime override would show a knob as armed while changing nothing. They
+ * stay environment variables and a rollout.
+ */
+export const FAULT_KNOBS: FaultKnob[] = [
+  {
+    key: "ORDER_RESPONSE_VERSION",
+    label: "Order response v2",
+    armed: "2",
+    note: "amount_cents becomes a nested object; checkout-gateway fails to parse it and the storefront serves 502",
+  },
+];
 
 export interface OrdersApiConfig extends CommonConfig {
   db: DbConfig;

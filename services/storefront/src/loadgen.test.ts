@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
-import { loadLoadgenConfig, pickAction, runLoad } from "./loadgen.js";
+import { ConfigError } from "@sample-app/platform";
+import { loadLoadgenConfig, parseFaultTargets, pickAction, runLoad } from "./loadgen.js";
 
 test("the defaults are modest enough to run on a laptop, and idle until asked", () => {
   const c = loadLoadgenConfig({ TARGET_URL: "http://localhost:3000" });
@@ -91,4 +92,15 @@ test("a 5xx from the storefront counts as an error without throwing", async () =
   } finally {
     await new Promise<void>((r) => server.close(() => r()));
   }
+});
+test("parseFaultTargets reads a name=url list, and refuses anything else", () => {
+  assert.deepEqual(parseFaultTargets("storefront=http://storefront:3000, orders-api=http://orders:3000/"), [
+    { name: "storefront", url: "http://storefront:3000" },
+    { name: "orders-api", url: "http://orders:3000" },
+  ]);
+  assert.deepEqual(parseFaultTargets(""), []);
+  assert.throws(() => parseFaultTargets("storefront"), ConfigError);
+  assert.throws(() => parseFaultTargets("storefront=not-a-url"), ConfigError);
+  assert.throws(() => parseFaultTargets("s=file:///etc/passwd"), ConfigError);
+  assert.throws(() => parseFaultTargets("s=http://a:3000,s=http://b:3000"), ConfigError);
 });

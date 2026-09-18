@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";
-import { createApp, type AppDeps } from "./http-server.js";
+import { createApp, type AppDeps, type FaultState } from "./http-server.js";
+import { activeFaults, clearFaults, faultInt, type FaultKnob } from "./faults.js";
 import { sendJson } from "./http.js";
 import { createMetrics } from "./metrics.js";
 import { RollingStats } from "./rolling-stats.js";
@@ -140,4 +141,93 @@ test("stats reports the rolling window for this service", async () => {
     assert.equal(s.requests, 1);
     assert.equal(s.windowSeconds, 60);
   });
+});
+// --- /control/fault -------------------------------------------------------------------------
+
+const KNOBS: FaultKnob[] = [
+  { key: "ORDER_RESPONSE_VERSION", label: "Order response v2", armed: "2", note: "breaks the gateway's parse" },
+];
+
+function faultHarness(token: string | null) {
+  return harness({ faults: { knobs: KNOBS, token, ttlSeconds: 900 } });
+}
+
+const arm = (base: string, token: string | null, body: unknown): Promise<Response> =>
+  fetch(`${base}/control/fault`, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify(body),
+  });
+
+test("no fault control token means no fault route at all, not an open one", async () => {
+  const { server } = faultHarness(null);
+  await withServer(server, async (base) => {
+    // 404 from the app-route fallthrough: nothing is listening on that path, so there is no
+    // switch to find. An unset GATEWAY_AUTH_TOKEN leaves /api open; this must not.
+    assert.equal((await fetch(`${base}/control/fault`)).status, 404);
+    assert.equal((await arm(base, null, { key: "ORDER_RESPONSE_VERSION", on: true })).status, 404);
+  });
+});
+
+test("the fault route refuses a missing or wrong token", async () => {
+  const { server } = faultHarness("s3cret");
+  await withServer(server, async (base) => {
+    const anon = await fetch(`${base}/control/fault`);
+    assert.equal(anon.status, 401);
+    assert.equal(anon.headers.get("www-authenticate"), "Bearer");
+    assert.equal((await arm(base, "wrong", { key: "ORDER_RESPONSE_VERSION", on: true })).status, 401);
+    assert.deepEqual(activeFaults(), []);
+  });
+});
+
+test("arming and disarming a declared knob round-trips through the endpoint", async () => {
+  const { server } = faultHarness("s3cret");
+  await withServer(server, async (base) => {
+    const armed = await arm(base, "s3cret", { key: "ORDER_RESPONSE_VERSION", on: true });
+    assert.equal(armed.status, 200);
+    const state = (await armed.json()) as FaultState;
+    assert.equal(state.knobs[0]?.active, true);
+    assert.ok((state.knobs[0]?.expiresAt ?? 0) > Date.now());
+    assert.equal(faultInt("ORDER_RESPONSE_VERSION", 1), 2);
+
+    const off = await arm(base, "s3cret", { key: "ORDER_RESPONSE_VERSION", on: false });
+    assert.equal(((await off.json()) as FaultState).knobs[0]?.active, false);
+    assert.equal(faultInt("ORDER_RESPONSE_VERSION", 1), 1);
+  });
+  clearFaults();
+});
+
+test("the endpoint arms only what the service declared, and only to the declared value", async () => {
+  const { server } = faultHarness("s3cret");
+  await withServer(server, async (base) => {
+    // An undeclared key is not a config the caller may set — it is a knob that does not exist.
+    assert.equal((await arm(base, "s3cret", { key: "DB_POOL_MAX", on: true })).status, 404);
+    assert.equal((await arm(base, "s3cret", { key: "ORDER_RESPONSE_VERSION", on: "yes" })).status, 400);
+    // A value supplied by the caller is ignored: the request picks a knob, it does not set one.
+    await arm(base, "s3cret", { key: "ORDER_RESPONSE_VERSION", on: true, armed: "9999" });
+    assert.equal(faultInt("ORDER_RESPONSE_VERSION", 1), 2);
+  });
+  clearFaults();
+});
+
+test("the fault route stays out of http_server_* like the probes do", async () => {
+  const { server, metrics } = faultHarness("s3cret");
+  await withServer(server, async (base) => {
+    await fetch(`${base}/control/fault`, { headers: { authorization: "Bearer s3cret" } });
+    const text = await metrics.registry.metrics();
+    // The button that ends an incident must not add to the error rate being watched to decide
+    // whether it worked.
+    assert.doesNotMatch(text, /http_server_requests_total\{[^}]*control/);
+  });
+});
+
+test("fault_active carries the armed knob into the scrape, and drops it on disarm", async () => {
+  const { server, metrics } = faultHarness("s3cret");
+  await withServer(server, async (base) => {
+    await arm(base, "s3cret", { key: "ORDER_RESPONSE_VERSION", on: true });
+    assert.match(await metrics.registry.metrics(), /fault_active\{service="test-svc",knob="ORDER_RESPONSE_VERSION"\} 1/);
+    await arm(base, "s3cret", { key: "ORDER_RESPONSE_VERSION", on: false });
+    assert.doesNotMatch(await metrics.registry.metrics(), /fault_active\{/);
+  });
+  clearFaults();
 });

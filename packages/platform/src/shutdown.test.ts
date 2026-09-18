@@ -7,13 +7,25 @@ import { createLogger } from "./logger.js";
 
 const quietLogger = () => createLogger({ service: "t", version: "v", level: "error", write: () => {} });
 
-function slowServer(delayMs: number): http.Server {
-  return http.createServer((_req, res) => {
+type SlowServer = http.Server & { firstRequest: Promise<void> };
+
+/**
+ * `firstRequest` resolves when a request has actually reached the handler. Every test here needs
+ * one in flight before it starts the shutdown, and it used to wait 30ms and hope — which held
+ * until the suite grew enough to squeeze that window, and then failed as "in-flight request did
+ * not complete" with nothing wrong in the code under test.
+ */
+function slowServer(delayMs: number): SlowServer {
+  let arrived!: () => void;
+  const firstRequest = new Promise<void>((resolve) => (arrived = resolve));
+  const server = http.createServer((_req, res) => {
+    arrived();
     setTimeout(() => {
       res.writeHead(200, { "content-type": "text/plain" });
       res.end("done");
     }, delayMs);
   });
+  return Object.assign(server, { firstRequest });
 }
 
 test("an in-flight request completes and the process exits 0", async () => {
@@ -30,7 +42,7 @@ test("an in-flight request completes and the process exits 0", async () => {
   });
 
   const inFlight = fetch(`http://127.0.0.1:${port}/`);
-  await new Promise((r) => setTimeout(r, 30));
+  await server.firstRequest;
   const shutdownDone = shutdown();
 
   assert.equal(await (await inFlight).text(), "done");
@@ -45,7 +57,7 @@ test("no new connection is accepted once shutdown has started", async () => {
   const shutdown = installShutdown({ server, timeoutMs: 5000, logger: quietLogger(), signals: [], exit: () => {} });
 
   const inFlight = fetch(`http://127.0.0.1:${port}/`);
-  await new Promise((r) => setTimeout(r, 30));
+  await server.firstRequest;
   const shutdownDone = shutdown();
   await assert.rejects(fetch(`http://127.0.0.1:${port}/`));
   await inFlight;
@@ -97,7 +109,7 @@ test("GRACEFUL_SHUTDOWN_MS=0 cuts in-flight connections instead of draining", as
   const shutdown = installShutdown({ server, timeoutMs: 0, logger: quietLogger(), signals: [], exit: () => {} });
 
   const inFlight = fetch(`http://127.0.0.1:${port}/`).catch(() => "cut");
-  await new Promise((r) => setTimeout(r, 30));
+  await server.firstRequest;
   const startedAt = Date.now();
   await shutdown();
   assert.ok(Date.now() - startedAt < 500, "shutdown must not wait for the 1s handler");
