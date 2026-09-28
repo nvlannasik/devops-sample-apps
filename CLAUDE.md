@@ -2,10 +2,7 @@
 
 ## Environment
 
-- **Node 24 required.** Every shell running `npm`/`node` must start with:
-  ```bash
-  export PATH=~/.nvm/versions/node/v24.16.0/bin:$PATH
-  ```
+- **Node 24 required.**
 - **TypeScript ESM, `module`/`moduleResolution` = NodeNext.** Every relative import ends in `.js` even though the source is `.ts`.
 - **Tests: `node:test` + `tsx`.** No jest, vitest, mocha, chai, or sinon.
 
