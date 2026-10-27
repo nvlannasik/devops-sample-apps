@@ -4,7 +4,7 @@ import {
   createLogger,
   createMetrics,
   faultInt,
-  initTracing,
+  activeTracing,
   listen,
   installShutdown,
   loadOrExit,
@@ -27,13 +27,9 @@ const logger = createLogger({
   level: config.logLevel,
   traceContext,
 });
-const tracing = initTracing({
-  service: SERVICE,
-  version: config.serviceVersion,
-  deploymentEnv: config.deploymentEnv,
-  endpoint: config.otelEndpoint,
-  logger,
-});
+// Started by tracing-preload.js (node --import, see the Dockerfile) before this module loaded —
+// here it would be too late to instrument anything. Null when the preload did not run.
+const tracing = activeTracing();
 const metrics = createMetrics({ service: SERVICE, version: config.serviceVersion, commit: config.serviceVersion });
 
 // Logged once at boot so the running fault knob is findable in Loki, not only in the pod spec.

@@ -39,4 +39,7 @@ ENV PORT=3001
 
 EXPOSE 3001
 
-CMD ["node", "services/settlement-worker/dist/index.js"]
+# The preload starts OpenTelemetry before the service's ESM graph loads — instrumenting from
+# index.ts is too late (packages/platform/src/tracing-preload.ts). The name is the resource's.
+ENV OTEL_SERVICE_NAME=settlement-worker
+CMD ["node", "--import", "./packages/platform/dist/tracing-preload.js", "services/settlement-worker/dist/index.js"]

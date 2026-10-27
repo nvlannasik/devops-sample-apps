@@ -12,8 +12,11 @@ This document is the reasoning; those are the artifacts.
 
 ## §1 Images
 
-Four images are produced from this repo. All share the same build context (repo root) and are
-pushed with the same tag: the 7-character git SHA.
+Four images are produced from this repo. All share the same build context (repo root). CI
+(`.github/workflows/cicd-pipeline.yml`) runs the test suite on every push and pull request, and on
+`main` builds all four for `linux/amd64` and `linux/arm64` and pushes `<DOCKERHUB_USERNAME>/<name>:latest`
+(repo secrets `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`). The loadgen deployment runs the `storefront` image
+with another command, so it has no image of its own.
 
 | Service | Dockerfile |
 |---|---|
@@ -22,7 +25,7 @@ pushed with the same tag: the 7-character git SHA.
 | `orders-api` | `services/orders-api/Dockerfile` |
 | `settlement-worker` | `services/settlement-worker/Dockerfile` |
 
-Build command (replace `<sha>` with `git rev-parse --short HEAD`):
+A manual build (replace `<sha>` with `git rev-parse --short HEAD`):
 
 ```sh
 docker build -f services/<name>/Dockerfile --build-arg SERVICE_VERSION=<sha> -t <name>:<sha> .
@@ -351,7 +354,15 @@ curl -sG <prometheus>/api/v1/query --data-urlencode 'query=kube_endpoint_address
 ## §7 Tracing (optional)
 
 Set `OTEL_EXPORTER_OTLP_ENDPOINT` on every pod to enable distributed tracing. Without it
-the SDK starts but no spans are exported. The `settlement-worker` links its span back to the
+the SDK is not started and no spans are exported.
+
+Tracing starts in a **preload**, not in the service: each image's command is
+`node --import ./packages/platform/dist/tracing-preload.js services/<name>/dist/index.js`, and each
+Dockerfile sets `OTEL_SERVICE_NAME`. The services are ESM, so anything started from `index.ts` runs
+after `node:http`, `pg` and `fetch` are already loaded and instruments nothing — that is what kept
+Jaeger empty for every service until 2026-10-27, while each pod logged "tracing enabled". **A
+deployment that overrides the command must keep the `--import`** (and set `OTEL_SERVICE_NAME`), or it
+runs untraced; the loadgen's command deliberately omits it. The `settlement-worker` links its span back to the
 checkout request's trace via the `traceparent` column — do not omit this endpoint if incident
 response depends on the async trace path.
 

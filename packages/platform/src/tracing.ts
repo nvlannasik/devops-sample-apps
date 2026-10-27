@@ -80,6 +80,16 @@ export interface Tracing {
   shutdown(): Promise<void>;
 }
 
+// The SDK the preload started, for the service's graceful shutdown to flush. Module state on
+// purpose: the preload (tracing-preload.ts) runs before the app's own modules exist, so it has
+// nothing to hand the handle to — the app asks for it instead.
+let active: Tracing | null = null;
+
+/** The tracing the preload started, or null when it did not (no endpoint, or no --import). */
+export function activeTracing(): Tracing | null {
+  return active;
+}
+
 export interface TracingOptions {
   service: string;
   version: string;
@@ -89,8 +99,13 @@ export interface TracingOptions {
 }
 
 /**
- * Auto-instruments http and pg, so every hop and every SQL statement gets a span without
- * manual code. Probe endpoints are excluded — otherwise the trace backend fills with kubelet.
+ * Auto-instruments http, fetch (undici) and pg, so every hop and every SQL statement gets a span
+ * without manual code. Probe endpoints are excluded — otherwise the trace backend fills with kubelet.
+ *
+ * Must run BEFORE the app imports node:http or pg, which in ESM means before the entry module is
+ * loaded at all: call it from tracing-preload.ts via `node --import`, never from index.ts. Called
+ * after, it patches a module the app has already bound and produces no spans while logging
+ * "tracing enabled" (2026-10-27, Jaeger empty for every service).
  */
 export function initTracing(opts: TracingOptions): Tracing | null {
   if (!opts.endpoint) {
@@ -102,6 +117,10 @@ export function initTracing(opts: TracingOptions): Tracing | null {
   const { OTLPTraceExporter } = require("@opentelemetry/exporter-trace-otlp-http") as typeof import("@opentelemetry/exporter-trace-otlp-http");
   const { HttpInstrumentation } = require("@opentelemetry/instrumentation-http") as typeof import("@opentelemetry/instrumentation-http");
   const { PgInstrumentation } = require("@opentelemetry/instrumentation-pg") as typeof import("@opentelemetry/instrumentation-pg");
+  // Every service-to-service call is fetch() (http-client.ts), which HttpInstrumentation does not
+  // see. Without this there is no client span and no traceparent on the wire, so a request through
+  // checkout-gateway and orders-api lands in Jaeger as two unrelated traces.
+  const { UndiciInstrumentation } = require("@opentelemetry/instrumentation-undici") as typeof import("@opentelemetry/instrumentation-undici");
   const { resourceFromAttributes } = require("@opentelemetry/resources") as typeof import("@opentelemetry/resources");
   const { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } = require("@opentelemetry/semantic-conventions") as typeof import("@opentelemetry/semantic-conventions");
 
@@ -120,10 +139,12 @@ export function initTracing(opts: TracingOptions): Tracing | null {
         },
       }),
       new PgInstrumentation(),
+      new UndiciInstrumentation(),
     ],
   });
 
   sdk.start();
   opts.logger.info("tracing enabled", { endpoint: opts.endpoint });
-  return { shutdown: () => sdk.shutdown() };
+  active = { shutdown: () => sdk.shutdown() };
+  return active;
 }

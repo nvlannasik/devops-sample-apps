@@ -4,7 +4,7 @@ import {
   createHttpClient,
   createLogger,
   createMetrics,
-  initTracing,
+  activeTracing,
   listen,
   loadOrExit,
   redactConfig,
@@ -20,13 +20,9 @@ const SERVICE = "checkout-gateway";
 
 const config = loadOrExit(loadConfig);
 const logger = createLogger({ service: SERVICE, version: config.serviceVersion, level: config.logLevel, traceContext });
-const tracing = initTracing({
-  service: SERVICE,
-  version: config.serviceVersion,
-  deploymentEnv: config.deploymentEnv,
-  endpoint: config.otelEndpoint,
-  logger,
-});
+// Started by tracing-preload.js (node --import, see the Dockerfile) before this module loaded —
+// here it would be too late to instrument anything. Null when the preload did not run.
+const tracing = activeTracing();
 const metrics = createMetrics({ service: SERVICE, version: config.serviceVersion, commit: config.serviceVersion });
 logger.info("starting", { config: redactConfig({ ...config }) });
 

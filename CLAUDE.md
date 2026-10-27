@@ -72,6 +72,13 @@ WARN log line are the trail. A **benchmark run should still use the environment 
 button is for demos.
 
 ## Global constraints
+- **Tracing is started by the preload, never from `index.ts`** (`packages/platform/src/tracing-preload.ts`,
+  `node --import` in every Dockerfile CMD). The services are ESM: an entry module's imports — `node:http`,
+  `pg` — are evaluated before its body, so `initTracing()` called there instruments nothing and still logs
+  "tracing enabled". The preload also registers OTel's import-in-the-middle hook, without which an ESM
+  `import * as http` is not patched even when the SDK starts first. Service code reads the handle with
+  `activeTracing()`. `tracing-preload.test.ts` runs a real ESM child process against a fake OTLP receiver
+  and fails if the server span, the fetch (undici) span, or the shared trace id goes missing.
 
 - No new npm dependencies. The closed list is in the plan.
 - Never `git push`, never create a branch or PR.

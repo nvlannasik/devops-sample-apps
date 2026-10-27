@@ -1,0 +1,75 @@
+name: Test, Build & Push Docker Images
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # Builds the shared libraries first (the tracing preload test runs the built dist), then the
+      # whole node:test suite. Tests that need Postgres skip themselves without TEST_DATABASE_URL.
+      - name: Test
+        run: npm test
+
+  build:
+    # Images only from main, and only once the suite is green; a pull request stops at the tests.
+    needs: test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The loadgen image is the storefront image with another command (GitOps release), so
+        # four images cover all five deployments.
+        service: [storefront, checkout-gateway, orders-api, settlement-worker]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4.3.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4.3.0
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v4.6.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Multi-arch: the dev cluster is arm64, the stg VM is amd64. The context is the repo root
+      # because every Dockerfile copies packages/ alongside its own service.
+      - name: Build and push
+        uses: docker/build-push-action@v7.3.0
+        with:
+          context: .
+          file: services/${{ matrix.service }}/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.service }}:latest
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
