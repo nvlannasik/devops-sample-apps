@@ -28,7 +28,7 @@ settlement-worker     SKIP LOCKED drain loop
 ## Quick start
 
 ```bash
-# Requires Docker and Node 24
+# Requires Docker and Node 26
 cp .env.example .env
 docker compose up -d --build
 # Wait ~15s for images to build and migrations to run

@@ -2,7 +2,7 @@
 
 ## Environment
 
-- **Node 24 required.**
+- **Node 26 required.**
 - **TypeScript ESM, `module`/`moduleResolution` = NodeNext.** Every relative import ends in `.js` even though the source is `.ts`.
 - **Tests: `node:test` + `tsx`.** No jest, vitest, mocha, chai, or sinon.
 

@@ -110,7 +110,7 @@ spec:
       terminationGracePeriodSeconds: 30
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1000          # the `node` user in node:24-alpine; the images do not set USER
+        runAsUser: 1000          # the `node` user in node:26-alpine; the images do not set USER
         runAsGroup: 1000
         fsGroup: 1000
       containers:
